@@ -53,7 +53,10 @@ namespace SdfRenderer.Tests
                 Assert.That(settings.UseUrpScreenSpaceAo, Is.True);
                 Assert.That(settings.SdfAmbientOcclusion, Is.True);
                 Assert.That(settings.AmbientOcclusionStrength, Is.GreaterThan(0f));
+                Assert.That(settings.AmbientOcclusionRadius, Is.GreaterThan(0f));
+                Assert.That(settings.AmbientOcclusionSamples, Is.InRange(2, 6));
                 Assert.That(settings.ShadowMaxSteps, Is.GreaterThan(0));
+                Assert.That(settings.ShadowSoftness, Is.GreaterThan(0f));
                 Assert.That(settings.AmbientColor.maxColorComponent, Is.GreaterThan(0f));
             }
             finally

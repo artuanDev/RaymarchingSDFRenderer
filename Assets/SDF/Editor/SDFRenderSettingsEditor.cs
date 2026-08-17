@@ -11,7 +11,7 @@ namespace SdfRenderer.Editor
             DrawDefaultInspector();
             EditorGUILayout.Space();
             EditorGUILayout.HelpBox(
-                "Shadow and ambient-occlusion controls are global to this renderer. Shadow steps tune the instanced screen-space SDF shadow-volume trace; regular URP shadow maps are still received. URP screen-space AO uses the shared SDF depth/normal prepass; add the URP SSAO renderer feature after this feature to control radius, quality, and sample count. Scene probes provide PBR ambient/reflection lighting, with Ambient Color used as a minimum fallback.",
+                "Shadow and ambient-occlusion controls are global to this renderer. Shadow Softness adds a penumbra estimate inside the existing shadow trace, without extra rays. SDF Ambient Occlusion samples the local distance field; Samples controls its bounded per-hit cost. URP Screen Space AO adds contact between SDFs and regular geometry through the shared depth/normal prepass. Scene probes provide PBR ambient/reflection lighting, with Ambient Color used as a minimum fallback.",
                 MessageType.Info);
             EditorGUILayout.Space();
             EditorGUILayout.LabelField("Native-resolution quality presets", EditorStyles.boldLabel);

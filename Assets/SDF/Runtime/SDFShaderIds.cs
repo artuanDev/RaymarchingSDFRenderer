@@ -32,9 +32,12 @@ namespace SdfRenderer
         internal static readonly int ShadowStepSafety = Shader.PropertyToID("_SDFShadowStepSafety");
         internal static readonly int ShadowBias = Shader.PropertyToID("_SDFShadowBias");
         internal static readonly int ShadowStrength = Shader.PropertyToID("_SDFShadowStrength");
+        internal static readonly int ShadowSoftness = Shader.PropertyToID("_SDFShadowSoftness");
         internal static readonly int UseUrpScreenSpaceAo = Shader.PropertyToID("_SDFUseUrpScreenSpaceAO");
         internal static readonly int AmbientOcclusionEnabled = Shader.PropertyToID("_SDFAmbientOcclusionEnabled");
         internal static readonly int AmbientOcclusionStrength = Shader.PropertyToID("_SDFAmbientOcclusionStrength");
+        internal static readonly int AmbientOcclusionRadius = Shader.PropertyToID("_SDFAmbientOcclusionRadius");
+        internal static readonly int AmbientOcclusionSamples = Shader.PropertyToID("_SDFAmbientOcclusionSamples");
         internal static readonly int AmbientColor = Shader.PropertyToID("_SDFAmbientColor");
         internal static readonly int LightDirection = Shader.PropertyToID("_SDFLightDirection");
         internal static readonly int LightColor = Shader.PropertyToID("_SDFLightColor");
@@ -45,6 +48,13 @@ namespace SdfRenderer
         internal static readonly int UnityShBg = Shader.PropertyToID("unity_SHBg");
         internal static readonly int UnityShBb = Shader.PropertyToID("unity_SHBb");
         internal static readonly int UnityShC = Shader.PropertyToID("unity_SHC");
+        internal static readonly int ShadowShAr = Shader.PropertyToID("_SDFShadowSHAr");
+        internal static readonly int ShadowShAg = Shader.PropertyToID("_SDFShadowSHAg");
+        internal static readonly int ShadowShAb = Shader.PropertyToID("_SDFShadowSHAb");
+        internal static readonly int ShadowShBr = Shader.PropertyToID("_SDFShadowSHBr");
+        internal static readonly int ShadowShBg = Shader.PropertyToID("_SDFShadowSHBg");
+        internal static readonly int ShadowShBb = Shader.PropertyToID("_SDFShadowSHBb");
+        internal static readonly int ShadowShC = Shader.PropertyToID("_SDFShadowSHC");
         internal static readonly int UnityProbesOcclusion = Shader.PropertyToID("unity_ProbesOcclusion");
         internal static readonly int UnitySpecCube0 = Shader.PropertyToID("unity_SpecCube0");
         internal static readonly int UnitySpecCube0Hdr = Shader.PropertyToID("unity_SpecCube0_HDR");

@@ -252,7 +252,7 @@ namespace SdfRenderer
                     return;
 
                 UniversalResourceData resources = frameData.Get<UniversalResourceData>();
-                if (!resources.cameraDepthTexture.IsValid())
+                if (!resources.cameraDepthTexture.IsValid() || !resources.cameraNormalsTexture.IsValid())
                     return;
                 UniversalCameraData cameraData = frameData.Get<UniversalCameraData>();
                 UniversalLightData lightData = frameData.Get<UniversalLightData>();
@@ -267,6 +267,7 @@ namespace SdfRenderer
                 passData.Properties = BuildProperties(camera, 3);
                 builder.SetRenderAttachment(resources.activeColorTexture, 0, AccessFlags.ReadWrite);
                 builder.UseTexture(resources.cameraDepthTexture, AccessFlags.Read);
+                builder.UseTexture(resources.cameraNormalsTexture, AccessFlags.Read);
                 builder.AllowPassCulling(false);
                 builder.SetRenderFunc(static (PassData data, RasterGraphContext context) =>
                 {
@@ -311,9 +312,12 @@ namespace SdfRenderer
                 properties.SetFloat(SDFShaderIds.ShadowStepSafety, m_Settings.ShadowStepSafety);
                 properties.SetFloat(SDFShaderIds.ShadowBias, m_Settings.ShadowBias);
                 properties.SetFloat(SDFShaderIds.ShadowStrength, m_Settings.ShadowStrength);
+                properties.SetFloat(SDFShaderIds.ShadowSoftness, m_Settings.ShadowSoftness);
                 properties.SetInteger(SDFShaderIds.UseUrpScreenSpaceAo, m_Settings.UseUrpScreenSpaceAo ? 1 : 0);
                 properties.SetInteger(SDFShaderIds.AmbientOcclusionEnabled, m_Settings.SdfAmbientOcclusion ? 1 : 0);
                 properties.SetFloat(SDFShaderIds.AmbientOcclusionStrength, m_Settings.AmbientOcclusionStrength);
+                properties.SetFloat(SDFShaderIds.AmbientOcclusionRadius, m_Settings.AmbientOcclusionRadius);
+                properties.SetInteger(SDFShaderIds.AmbientOcclusionSamples, m_Settings.AmbientOcclusionSamples);
                 Color ambient = QualitySettings.activeColorSpace == ColorSpace.Linear ? m_Settings.AmbientColor.linear : m_Settings.AmbientColor;
                 properties.SetColor(SDFShaderIds.AmbientColor, ambient);
                 properties.SetVector(SDFShaderIds.LightDirection, camera.LightDirection);
@@ -330,6 +334,13 @@ namespace SdfRenderer
                 properties.SetVector(SDFShaderIds.UnityShBg, sphericalHarmonics.SHBg);
                 properties.SetVector(SDFShaderIds.UnityShBb, sphericalHarmonics.SHBb);
                 properties.SetVector(SDFShaderIds.UnityShC, sphericalHarmonics.SHC);
+                properties.SetVector(SDFShaderIds.ShadowShAr, sphericalHarmonics.SHAr);
+                properties.SetVector(SDFShaderIds.ShadowShAg, sphericalHarmonics.SHAg);
+                properties.SetVector(SDFShaderIds.ShadowShAb, sphericalHarmonics.SHAb);
+                properties.SetVector(SDFShaderIds.ShadowShBr, sphericalHarmonics.SHBr);
+                properties.SetVector(SDFShaderIds.ShadowShBg, sphericalHarmonics.SHBg);
+                properties.SetVector(SDFShaderIds.ShadowShBb, sphericalHarmonics.SHBb);
+                properties.SetVector(SDFShaderIds.ShadowShC, sphericalHarmonics.SHC);
                 properties.SetVector(SDFShaderIds.UnityProbesOcclusion, Vector4.one);
                 Texture defaultReflection = ReflectionProbe.defaultTexture;
                 if (defaultReflection != null)

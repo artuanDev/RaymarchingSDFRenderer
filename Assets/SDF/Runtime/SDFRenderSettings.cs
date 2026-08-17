@@ -24,11 +24,14 @@ namespace SdfRenderer
         [SerializeField, Range(0.05f, 1f)] private float m_ShadowStepSafety = 0.8f;
         [SerializeField, Min(0.00001f)] private float m_ShadowBias = 0.005f;
         [SerializeField, Range(0f, 1f)] private float m_ShadowStrength = 1f;
+        [SerializeField, Range(0f, 1f)] private float m_ShadowSoftness = 0.12f;
 
         [Header("Ambient Occlusion")]
         [SerializeField] private bool m_UseUrpScreenSpaceAo = true;
         [SerializeField] private bool m_SdfAmbientOcclusion = true;
         [SerializeField, Range(0f, 1f)] private float m_AmbientOcclusionStrength = 0.8f;
+        [SerializeField, Min(0.001f)] private float m_AmbientOcclusionRadius = 0.25f;
+        [SerializeField, Range(2, 6)] private int m_AmbientOcclusionSamples = 3;
 
         [Header("Lighting fallback")]
         [SerializeField] private Color m_AmbientColor = new Color(0.08f, 0.09f, 0.12f, 1f);
@@ -50,9 +53,12 @@ namespace SdfRenderer
         public float ShadowStepSafety => m_ShadowStepSafety;
         public float ShadowBias => m_ShadowBias;
         public float ShadowStrength => m_ShadowStrength;
+        public float ShadowSoftness => m_ShadowSoftness;
         public bool UseUrpScreenSpaceAo => m_UseUrpScreenSpaceAo;
         public bool SdfAmbientOcclusion => m_SdfAmbientOcclusion;
         public float AmbientOcclusionStrength => m_AmbientOcclusionStrength;
+        public float AmbientOcclusionRadius => m_AmbientOcclusionRadius;
+        public int AmbientOcclusionSamples => m_AmbientOcclusionSamples;
         public Color AmbientColor => m_AmbientColor;
         public Vector3 LightDirection => m_LightDirection.sqrMagnitude > 0f ? m_LightDirection.normalized : Vector3.up;
         public Color LightColor => m_LightColor;
@@ -89,7 +95,10 @@ namespace SdfRenderer
             m_ShadowStepSafety = Mathf.Clamp(m_ShadowStepSafety, 0.05f, 1f);
             m_ShadowBias = Mathf.Max(0.00001f, m_ShadowBias);
             m_ShadowStrength = Mathf.Clamp01(m_ShadowStrength);
+            m_ShadowSoftness = Mathf.Clamp01(m_ShadowSoftness);
             m_AmbientOcclusionStrength = Mathf.Clamp01(m_AmbientOcclusionStrength);
+            m_AmbientOcclusionRadius = Mathf.Max(0.001f, m_AmbientOcclusionRadius);
+            m_AmbientOcclusionSamples = Mathf.Clamp(m_AmbientOcclusionSamples, 2, 6);
             if (m_QualityPreset != SDFQualityPreset.Custom &&
                 !MatchesPreset(m_QualityPreset))
                 m_QualityPreset = SDFQualityPreset.Custom;

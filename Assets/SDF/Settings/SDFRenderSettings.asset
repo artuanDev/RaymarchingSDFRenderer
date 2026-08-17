@@ -27,9 +27,12 @@ MonoBehaviour:
   m_ShadowStepSafety: 1
   m_ShadowBias: 0.005
   m_ShadowStrength: 1
+  m_ShadowSoftness: 0.044
   m_UseUrpScreenSpaceAo: 1
   m_SdfAmbientOcclusion: 1
   m_AmbientOcclusionStrength: 1
+  m_AmbientOcclusionRadius: 0.25
+  m_AmbientOcclusionSamples: 3
   m_AmbientColor: {r: 0.5882353, g: 0.68235296, b: 0.7803922, a: 1}
   m_LightDirection: {x: 0.35, y: 0.8, z: 0.25}
   m_LightColor: {r: 1, g: 1, b: 1, a: 1}

@@ -7,6 +7,7 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DeclareDepthTexture.hlsl"
+            #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DeclareNormalsTexture.hlsl"
 
             struct SDFModelGpu
             {
@@ -76,12 +77,22 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
             float _SDFShadowStepSafety;
             float _SDFShadowBias;
             float _SDFShadowStrength;
+            float _SDFShadowSoftness;
             int _SDFUseUrpScreenSpaceAO;
             int _SDFAmbientOcclusionEnabled;
             float _SDFAmbientOcclusionStrength;
+            float _SDFAmbientOcclusionRadius;
+            int _SDFAmbientOcclusionSamples;
             float3 _SDFAmbientColor;
             float3 _SDFLightDirection;
             float3 _SDFLightColor;
+            half4 _SDFShadowSHAr;
+            half4 _SDFShadowSHAg;
+            half4 _SDFShadowSHAb;
+            half4 _SDFShadowSHBr;
+            half4 _SDFShadowSHBg;
+            half4 _SDFShadowSHBb;
+            half4 _SDFShadowSHC;
             // D3D11 exposes only sixteen pixel-shader sampler registers and the maximal
             // URP Forward+ lighting variant already uses all of them. SDF slots therefore
             // reuse URP's global linear-clamp sampler and wrap their UVs explicitly. The
@@ -515,11 +526,40 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
 
             float2 EvaluateSdfAmbientOcclusion(float2 screenUV)
             {
-                if(_SDFAmbientOcclusionEnabled==0||_SDFAmbientOcclusionStrength<=0.0) return 1.0.xx;
-                if(_SDFUseUrpScreenSpaceAO==0) return 1.0.xx;
+                if(_SDFUseUrpScreenSpaceAO==0||_SDFAmbientOcclusionStrength<=0.0) return 1.0.xx;
                 AmbientOcclusionFactor ao=GetScreenSpaceAmbientOcclusion(screenUV);
                 return lerp(1.0.xx,float2(ao.directAmbientOcclusion,ao.indirectAmbientOcclusion),
                     saturate(_SDFAmbientOcclusionStrength));
+            }
+
+            float EvaluateSdfLocalAmbientOcclusion(float3 p,float3 normalWS,uint modelIndex,float pixelWorldSize)
+            {
+                if(_SDFAmbientOcclusionEnabled==0||_SDFAmbientOcclusionStrength<=0.0) return 1.0;
+                float radius=max(_SDFAmbientOcclusionRadius,pixelWorldSize*2.0);
+                float occlusion=0.0;
+                float normalization=0.0;
+                float weight=1.0;
+                [loop] for(int sampleIndex=0;sampleIndex<_SDFAmbientOcclusionSamples;++sampleIndex)
+                {
+                    float h=radius*(sampleIndex+1.0)/_SDFAmbientOcclusionSamples;
+                    float distanceToSurface=EvaluateModel(p+normalWS*h,modelIndex);
+                    occlusion+=max(h-distanceToSurface,0.0)*weight;
+                    normalization+=h*weight;
+                    weight*=0.6;
+                }
+                return saturate(1.0-_SDFAmbientOcclusionStrength*occlusion/max(normalization,1e-5));
+            }
+
+            half3 SampleSdfShadowAmbient(half3 normalWS)
+            {
+                half4 normalAndConstant=half4(normalWS,1.0h);
+                half3 l0l1=half3(dot(_SDFShadowSHAr,normalAndConstant),
+                    dot(_SDFShadowSHAg,normalAndConstant),dot(_SDFShadowSHAb,normalAndConstant));
+                half4 quadratic=normalWS.xyzz*normalWS.yzzx;
+                half3 l2=half3(dot(_SDFShadowSHBr,quadratic),
+                    dot(_SDFShadowSHBg,quadratic),dot(_SDFShadowSHBb,quadratic));
+                l2+=_SDFShadowSHC.rgb*(normalWS.x*normalWS.x-normalWS.y*normalWS.y);
+                return max(l0l1+l2,0.0h);
             }
 
             float EvaluateSdfSelfShadow(float3 p)
@@ -666,7 +706,9 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
                 context.lightDirectionWS=_SDFLightDirection; context.lightColor=_SDFLightColor; context.ambientColor=_SDFAmbientColor;
                 float2 ambientOcclusion=EvaluateSdfAmbientOcclusion(screenUV);
                 context.directAmbientOcclusion=ambientOcclusion.x;
-                context.ambientOcclusion=ambientOcclusion.y;
+                float cameraDistance=max(distance(p,_SDFCameraPosition),_SDFCameraNear);
+                float pixelWorldSize=_SDFOrthographic>0.5?_SDFPixelWorldScale:cameraDistance*_SDFPixelWorldScale;
+                context.ambientOcclusion=ambientOcclusion.y*EvaluateSdfLocalAmbientOcclusion(p,normalWS,modelIndex,pixelWorldSize);
                 context.selfShadow=EvaluateSdfSelfShadow(p);
                 float3 currentColor=ShadeMaterial((uint)(first.MaterialModifierCountDistanceScaleBoundsScale.x+0.5),context);
                 [loop] for(uint i=1u;i<count;++i)
@@ -770,13 +812,17 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
                 #endif
 
                 float3 receiverPosition=ComputeWorldSpacePosition(screenUV,deviceDepth,UNITY_MATRIX_I_VP);
+                float3 receiverNormal=normalize(SampleSceneNormals(screenUV));
+                float receiverPixelSize=_SDFOrthographic>0.5?_SDFPixelWorldScale:
+                    max(distance(receiverPosition,_SDFCameraPosition),_SDFCameraNear)*_SDFPixelWorldScale;
+                float traceBias=max(_SDFShadowBias,receiverPixelSize*max(_SDFPixelTolerance,0.25)*2.0);
                 // Do not multiply a caster's own already-PBR-shaded surface. Its
                 // N.L term already removes direct light on the back side; multiplying
                 // the finished color here would incorrectly crush ambient and probe GI.
                 float receiverDistance=EvaluateModel(receiverPosition,input.modelIndex);
-                if(abs(receiverDistance)<=max(_SDFShadowBias*2.0,_SDFSurfaceEpsilon*4.0)) discard;
+                if(abs(receiverDistance)<=max(traceBias*1.5,_SDFSurfaceEpsilon*4.0)) discard;
                 float3 rayDirection=normalize(_SDFLightDirection);
-                float3 rayOrigin=receiverPosition+rayDirection*_SDFShadowBias;
+                float3 rayOrigin=receiverPosition+receiverNormal*traceBias+rayDirection*traceBias;
                 SDFModelGpu model=_SDFModels[input.modelIndex];
                 float2 boxHit=IntersectAabb(rayOrigin,rayDirection,
                     model.BoundsMinAndShapeStart.xyz,model.BoundsMaxAndShapeCount.xyz);
@@ -784,20 +830,31 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
                 float rayEnd=min(boxHit.y,_SDFShadowMaxDistance);
                 if(rayEnd<=rayDistance) discard;
 
-                bool hit=false;
+                float visibility=1.0;
                 [loop] for(int stepIndex=0;stepIndex<_SDFShadowMaxSteps;++stepIndex)
                 {
                     float sampleDistance=EvaluateModel(rayOrigin+rayDirection*rayDistance,input.modelIndex);
-                    if(abs(sampleDistance)<=_SDFSurfaceEpsilon){hit=true;break;}
+                    if(_SDFShadowSoftness>0.0)
+                        visibility=min(visibility,saturate(max(sampleDistance,0.0)/
+                            max(_SDFShadowSoftness*max(rayDistance,traceBias),1e-5)));
+                    if(abs(sampleDistance)<=max(_SDFSurfaceEpsilon,receiverPixelSize*0.25)){visibility=0.0;break;}
                     rayDistance+=max(abs(sampleDistance)*_SDFShadowStepSafety,_SDFSurfaceEpsilon*0.5);
                     if(rayDistance>rayEnd) break;
                 }
-                if(!hit) discard;
+                // Tiny soft-shadow estimates become very visible when several caster
+                // volumes overlap. Reject that low-confidence tail and remap the useful
+                // penumbra range; hard hits remain exactly zero visibility.
+                float shadowAmount=saturate((0.97-visibility)/0.97);
+                if(shadowAmount<=1e-4) discard;
 
-                // This pass multiplies the already shaded scene, so retain an ambient
-                // floor instead of erasing indirect PBR light along with the direct sun.
-                half attenuation=lerp(1.0h,0.35h,saturate((half)_SDFShadowStrength));
-                return attenuation.xxxx;
+                // A multiplicative screen-space shadow cannot reconstruct the receiver's
+                // BRDF, but a luminance-normalized SH tint retains the scene's ambient
+                // colour while preserving the established shadow density.
+                half3 ambientLight=max(SampleSdfShadowAmbient((half3)receiverNormal),(half3)_SDFAmbientColor);
+                half ambientLuminance=max(dot(ambientLight,half3(0.2126h,0.7152h,0.0722h)),0.05h);
+                half3 ambientShadowFloor=saturate(ambientLight*(0.35h/ambientLuminance));
+                half blend=saturate((half)(_SDFShadowStrength*shadowAmount));
+                return half4(lerp(1.0h.xxx,ambientShadowFloor,blend),1.0h);
             }
 
             struct CameraTraceOutput

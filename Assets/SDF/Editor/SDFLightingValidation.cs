@@ -57,6 +57,10 @@ namespace SdfRenderer.Editor
 
             try
             {
+                // The procedural scene buffers and renderer feature are initialized on
+                // the first render after opening a scene. Do not use that setup frame as
+                // a lighting comparison image.
+                WarmupCamera(camera);
                 aoEnabled.boolValue = true;
                 aoStrength.floatValue = Mathf.Max(0.8f, originalAoStrength);
                 serializedSettings.ApplyModifiedPropertiesWithoutUndo();
@@ -67,6 +71,11 @@ namespace SdfRenderer.Editor
                 serializedSettings.ApplyModifiedPropertiesWithoutUndo();
                 SDFSceneRegistry.MarkDirty(SDFDirtyFlags.Settings);
                 CaptureCamera(camera, Path.Combine(projectRoot, "SDFLightingValidation_NoAO.png"));
+
+                Vector3 nearPosition = camera.transform.position;
+                camera.transform.position -= camera.transform.forward * 12f;
+                CaptureCamera(camera, Path.Combine(projectRoot, "SDFLightingValidation_Far.png"));
+                camera.transform.position = nearPosition;
             }
             finally
             {
@@ -77,6 +86,22 @@ namespace SdfRenderer.Editor
             }
 
             Debug.Log($"SDF_LIGHTING_VALIDATION_COMPLETE root={projectRoot} commandLine={commandLine}");
+        }
+
+        private static void WarmupCamera(Camera camera)
+        {
+            RenderTexture renderTexture = RenderTexture.GetTemporary(Width, Height, 24);
+            RenderTexture previousTarget = camera.targetTexture;
+            try
+            {
+                camera.targetTexture = renderTexture;
+                camera.Render();
+            }
+            finally
+            {
+                camera.targetTexture = previousTarget;
+                RenderTexture.ReleaseTemporary(renderTexture);
+            }
         }
 
         private static void CaptureCamera(Camera camera, string outputPath)

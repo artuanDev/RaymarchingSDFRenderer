@@ -12,11 +12,13 @@ The resulting pass provides:
 - SDFs receive regular URP main/additional-light shadows through the normal URP lighting functions.
 - A caster's own finished PBR color is not multiplied, so indirect probe/ambient lighting remains visible on surfaces facing away from the sun.
 
-`Cast Main Light Shadows` controls the extra shadow-volume pass. Shadow steps, distance, safety, and bias affect only that cheaper trace and do not change camera raymarch quality. Additional-light shadow casting by SDFs is not currently generated; SDF URP Lit materials can still receive additional-light shadows.
+`Cast Main Light Shadows` controls the extra shadow-volume pass. Shadow steps, distance, safety, bias, and softness affect only that cheaper trace and do not change camera raymarch quality. Softness estimates a penumbra during the existing trace and adds no extra shadow rays. Receiver-normal and pixel-scaled biasing keep the trace stable as camera distance changes. The shadow floor is tinted with the same scene ambient probe used by geometry instead of removing all indirect light. Additional-light shadow casting by SDFs is not currently generated; SDF URP Lit materials can still receive additional-light shadows.
 
 ## Ambient occlusion
 
-Ambient occlusion uses URP's screen-space AO renderer feature so it works between independent SDF models and regular geometry without introducing a global scene-distance loop. Before SSAO executes, a depth/normal pass raymarches the visible SDF surface into URP's camera depth and normal textures. URP then computes one shared AO texture for the complete scene.
+Local SDF ambient occlusion samples the current model's distance field along the surface normal. It is evaluated once per visible hit, shared by smooth material blends, and affects indirect PBR lighting. Radius controls its reach and the bounded 2–6 sample setting controls cost (three by default).
+
+URP's screen-space AO works alongside local AO to add contact between independent SDF models and regular geometry without introducing a global scene-distance loop. Before SSAO executes, a depth/normal pass raymarches the visible SDF surface into URP's camera depth and normal textures. URP then computes one shared AO texture for the complete scene.
 
 The color pass samples that AO texture once per visible SDF hit. Its direct factor attenuates direct lighting according to the SSAO feature's `Direct Lighting Strength`; its indirect factor is combined with the material occlusion value and attenuates ambient/reflection lighting. Smooth CSG material blends reuse the same lookup.
 
