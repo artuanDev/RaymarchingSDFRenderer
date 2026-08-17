@@ -14,6 +14,7 @@ namespace SdfRenderer
         Materials = 1 << 3,
         Bounds = 1 << 4,
         Settings = 1 << 5,
+        Transforms = 1 << 6,
         All = ~0
     }
 
@@ -132,7 +133,7 @@ namespace SdfRenderer
                 changed = true;
             }
             if (changed)
-                MarkDirty(SDFDirtyFlags.Shapes | SDFDirtyFlags.Bounds);
+                MarkDirty(SDFDirtyFlags.Transforms);
         }
 
         private static void EndBatch()

@@ -39,7 +39,7 @@ namespace SdfRenderer
         public Vector3 Normal => m_Normal.sqrMagnitude > 0f ? m_Normal.normalized : Vector3.up;
         public float Offset => m_Offset;
         public Bounds ClipBounds => m_ClipBounds;
-        public SDFMaterialAsset Material => m_Material;
+        public SDFMaterialAsset Material { get => m_Material; set { if (m_Material == value) return; m_Material = value; MarkDirty(); } }
 
         public bool IsUnbounded => m_ShapeType == SDFShapeType.Plane || m_ShapeType == SDFShapeType.InfiniteCylinder ||
             m_ShapeType == SDFShapeType.InfiniteCone;
@@ -193,6 +193,16 @@ namespace SdfRenderer
         {
             Vector3 scale = transform.lossyScale;
             return Mathf.Max(0.000001f, Mathf.Max(Mathf.Abs(scale.x), Mathf.Abs(scale.y), Mathf.Abs(scale.z)));
+        }
+
+        internal void GetScaleRange(out float minimum, out float maximum)
+        {
+            Vector3 scale = transform.lossyScale;
+            float x = Mathf.Abs(scale.x);
+            float y = Mathf.Abs(scale.y);
+            float z = Mathf.Abs(scale.z);
+            minimum = Mathf.Max(0.000001f, Mathf.Min(x, Mathf.Min(y, z)));
+            maximum = Mathf.Max(0.000001f, Mathf.Max(x, Mathf.Max(y, z)));
         }
 
         public float EvaluateLocal(Vector3 position)

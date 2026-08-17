@@ -4,11 +4,11 @@
 
 An `SDFModel` owns an ordered hierarchy of `SDFShape` operands. Each shape has an `SDFOperation`; the first operand seeds the fold and later operands apply union, subtraction, intersection, or their smooth variants. Multiple `SDFModifier` components form an ordered domain stack. A shape can reference `SDFMaterialAsset`, while `SDFCustomMaterial` provides a component-level override.
 
-`SDFSceneRegistry` is event-driven. Components register on enable and increment a version on serialized, animated, topology, transform, modifier, material, or bounds changes. `SDFSceneData` only rebuilds when this version changes. CPU arrays and GPU buffers are reused, and buffer capacity grows by powers of two.
+`SDFSceneRegistry` is event-driven. Components register on enable and increment a version on serialized, animated, topology, transform, modifier, material, or bounds changes. `SDFSceneData` only rebuilds topology when structural shape data changes. Transform-only changes reuse cached shape/model bindings and update just world matrices, conservative bounds, scale corrections, and their persistent GPU buffers. Material-only changes rebuild only the compact material buffer. Buffer capacity grows by powers of two and is reused.
 
 ## GPU data and rendering
 
-Models, shapes, modifiers, and materials are packed into persistent structured `GraphicsBuffer` objects. A Unity 6 `ScriptableRendererFeature` records a native RenderGraph raster pass after opaque geometry. The pass binds URP's active camera color and depth attachments directly and draws 36 procedural vertices per model instance. These vertices form a conservative AABB and are never visible as geometry.
+Models, shapes, modifiers, and materials are packed into persistent structured `GraphicsBuffer` objects. Dynamic model/shape data rotates across three buffers so CPU uploads do not overwrite a buffer that a preceding GPU frame may still be consuming. A Unity 6 `ScriptableRendererFeature` records a native RenderGraph raster pass after opaque geometry. The pass binds URP's active camera color and depth attachments directly and draws 36 procedural vertices per model instance. These vertices form a conservative AABB and are never visible as geometry.
 
 The fragment shader intersects the camera ray with the model AABB and sphere-traces only that interval. Existing opaque depth rejects occluded volume fragments, and successful SDF hits write `SV_Depth` so later rendering respects them. Perspective, orthographic, and inside-volume cameras use separate ray setup/winding paths.
 

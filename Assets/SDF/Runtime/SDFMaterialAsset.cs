@@ -19,13 +19,13 @@ namespace SdfRenderer
         [SerializeField] private Vector4 m_Custom1;
 
         public SDFShadingModel ShadingModel => m_ShadingModel;
-        public Color BaseColor => m_BaseColor;
+        public Color BaseColor { get => m_BaseColor; set { if (m_BaseColor == value) return; m_BaseColor = value; MarkDirty(); } }
         public Texture2D BaseMap => m_BaseMap;
         public Color SpecularColor => m_SpecularColor;
         public float SpecularPower => m_SpecularPower;
         public float Metallic => m_Metallic;
-        public float Smoothness => m_Smoothness;
-        public Color Emission => m_Emission;
+        public float Smoothness { get => m_Smoothness; set { value = Mathf.Clamp01(value); if (Mathf.Approximately(m_Smoothness, value)) return; m_Smoothness = value; MarkDirty(); } }
+        public Color Emission { get => m_Emission; set { if (m_Emission == value) return; m_Emission = value; MarkDirty(); } }
         public int CelBands => m_CelBands;
         public SDFShaderAsset CustomShader => m_CustomShader;
         public Vector4 Custom0 => m_Custom0;
@@ -37,5 +37,7 @@ namespace SdfRenderer
             m_CelBands = Mathf.Clamp(m_CelBands, 1, 8);
             SDFSceneRegistry.MarkDirty(SDFDirtyFlags.Materials);
         }
+
+        private static void MarkDirty() => SDFSceneRegistry.MarkDirty(SDFDirtyFlags.Materials);
     }
 }
