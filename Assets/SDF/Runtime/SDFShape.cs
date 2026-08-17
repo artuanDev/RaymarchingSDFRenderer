@@ -38,7 +38,7 @@ namespace SdfRenderer
         public Vector3 PointD => m_PointD;
         public Vector3 Normal => m_Normal.sqrMagnitude > 0f ? m_Normal.normalized : Vector3.up;
         public float Offset => m_Offset;
-        public Bounds ClipBounds => m_ClipBounds;
+        public Bounds ClipBounds { get => m_ClipBounds; set { m_ClipBounds = value; ClampParameters(); MarkDirty(); } }
         public SDFMaterialAsset Material { get => m_Material; set { if (m_Material == value) return; m_Material = value; MarkDirty(); } }
 
         public bool IsUnbounded => m_ShapeType == SDFShapeType.Plane || m_ShapeType == SDFShapeType.InfiniteCylinder ||

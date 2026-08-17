@@ -17,13 +17,17 @@ namespace SdfRenderer
         Rotations = 1 << 1,
         Scales = 1 << 2,
         Materials = 1 << 3,
-        Everything = Positions | Rotations | Scales | Materials
+        Operations = 1 << 4,
+        Modifiers = 1 << 5,
+        Everything = Positions | Rotations | Scales | Materials | Operations | Modifiers
     }
 
     [ExecuteAlways]
     public sealed class SDFBenchmarkController : MonoBehaviour
     {
         private static readonly ProfilerMarker AnimationMarker = new ProfilerMarker("SDF/Benchmark Animate Transforms");
+        private static readonly ProfilerMarker OperationAnimationMarker = new ProfilerMarker("SDF/Benchmark Animate Operations");
+        private static readonly ProfilerMarker ModifierAnimationMarker = new ProfilerMarker("SDF/Benchmark Animate Modifiers");
 
         [BurstCompile]
         private struct AnimateTransformsJob : IJobParallelForTransform
@@ -81,16 +85,22 @@ namespace SdfRenderer
         [SerializeField, Range(1, 10000)] private int m_ModelCount = 256;
         [SerializeField, Min(0.1f)] private float m_Spacing = 2.5f;
         [SerializeField, FormerlySerializedAs("m_Animate")] private SDFBenchmarkAnimation m_Animation = SDFBenchmarkAnimation.Positions;
+        [SerializeField] private bool m_IncludeOperations = true;
+        [SerializeField] private bool m_IncludeModifiers = true;
         [SerializeField, Range(1, 32)] private int m_MaterialCount = 8;
         [SerializeField, Min(0f)] private float m_AnimationSpeed = 1f;
         [SerializeField] private bool m_PreviewInEditMode;
         private Transform m_GeneratedRoot;
         private TransformAccessArray m_Transforms;
         private SDFMaterialAsset[] m_Materials;
+        private SDFOperation[] m_Operations;
+        private SDFModifier[] m_Modifiers;
 
         private int m_BuiltCount = -1;
         private int m_BuiltMaterialCount = -1;
         private float m_BuiltSpacing = -1f;
+        private bool m_BuiltOperations;
+        private bool m_BuiltModifiers;
         private SDFBenchmarkAnimation m_PreviousAnimation;
 
         public SDFBenchmarkAnimation Animation { get => m_Animation; set => m_Animation = value; }
@@ -115,7 +125,12 @@ namespace SdfRenderer
                 SDFBenchmarkAnimation.Rotations | SDFBenchmarkAnimation.Scales;
             SDFBenchmarkAnimation activeTransforms = activeAnimation & transformMask;
             SDFBenchmarkAnimation disabledTransforms = (m_PreviousAnimation & transformMask) & ~activeTransforms;
-            if (activeAnimation == SDFBenchmarkAnimation.None && disabledTransforms == SDFBenchmarkAnimation.None)
+            bool animateOperations = (activeAnimation & SDFBenchmarkAnimation.Operations) != 0;
+            bool animateModifiers = (activeAnimation & SDFBenchmarkAnimation.Modifiers) != 0;
+            bool resetOperations = (m_PreviousAnimation & SDFBenchmarkAnimation.Operations) != 0 && !animateOperations;
+            bool resetModifiers = (m_PreviousAnimation & SDFBenchmarkAnimation.Modifiers) != 0 && !animateModifiers;
+            if (activeAnimation == SDFBenchmarkAnimation.None && disabledTransforms == SDFBenchmarkAnimation.None &&
+                !resetOperations && !resetModifiers)
             {
                 m_PreviousAnimation = activeAnimation;
                 return;
@@ -164,6 +179,36 @@ namespace SdfRenderer
                         m_Materials[i].Smoothness = 0.5f + 0.4f * Mathf.Sin(time * 0.7f + i * 0.8f);
                     }
                 }
+
+                if ((animateOperations || resetOperations) && m_Operations != null)
+                {
+                    using (OperationAnimationMarker.Auto())
+                    {
+                        int operationOffset = animateOperations ? Mathf.FloorToInt(time * 0.35f) : 0;
+                        for (int i = 0; i < m_Operations.Length; ++i)
+                        {
+                            SDFOperation operation = m_Operations[i];
+                            if (operation == null) continue;
+                            operation.Type = (SDFOperationType)((i + operationOffset) % 6);
+                            operation.Smoothness = animateOperations
+                                ? 0.08f + (Mathf.Sin(time * 1.1f + i * 0.31f) * 0.5f + 0.5f) * 0.24f
+                                : 0.18f;
+                        }
+                    }
+                }
+
+                if ((animateModifiers || resetModifiers) && m_Modifiers != null)
+                {
+                    using (ModifierAnimationMarker.Auto())
+                    {
+                        for (int i = 0; i < m_Modifiers.Length; ++i)
+                        {
+                            SDFModifier modifier = m_Modifiers[i];
+                            if (modifier == null) continue;
+                            AnimateModifier(modifier, i, animateModifiers ? time : 0f, animateModifiers);
+                        }
+                    }
+                }
             }
             m_PreviousAnimation = activeAnimation;
         }
@@ -178,6 +223,8 @@ namespace SdfRenderer
             m_GeneratedRoot = root.transform;
             int width = Mathf.CeilToInt(Mathf.Sqrt(m_ModelCount));
             m_Transforms = new TransformAccessArray(m_ModelCount);
+            m_Operations = m_IncludeOperations ? new SDFOperation[m_ModelCount] : null;
+            m_Modifiers = m_IncludeModifiers ? new SDFModifier[m_ModelCount] : null;
             using (SDFSceneRegistry.BatchChanges())
             {
                 CreateMaterials();
@@ -190,6 +237,25 @@ namespace SdfRenderer
                     SDFShape shape = modelObject.AddComponent<SDFShape>();
                     shape.ShapeType = (i & 1) == 0 ? SDFShapeType.Sphere : SDFShapeType.RoundBox;
                     shape.Material = m_Materials[i % m_Materials.Length];
+                    if (m_IncludeModifiers)
+                    {
+                        SDFModifier modifier = modelObject.AddComponent<SDFModifier>();
+                        ConfigureModifier(modifier, shape, i);
+                        m_Modifiers[i] = modifier;
+                    }
+                    if (m_IncludeOperations)
+                    {
+                        GameObject operandObject = new GameObject("CSG Operand");
+                        operandObject.transform.SetParent(modelObject.transform, false);
+                        operandObject.transform.localPosition = new Vector3(0.38f, 0.08f, 0f);
+                        SDFShape operand = operandObject.AddComponent<SDFShape>();
+                        operand.ShapeType = (i % 3) == 0 ? SDFShapeType.Sphere : (i % 3) == 1 ? SDFShapeType.RoundBox : SDFShapeType.Torus;
+                        operand.Material = m_Materials[(i + 1) % m_Materials.Length];
+                        SDFOperation operation = operandObject.AddComponent<SDFOperation>();
+                        operation.Type = (SDFOperationType)(i % 6);
+                        operation.Smoothness = 0.18f;
+                        m_Operations[i] = operation;
+                    }
                     modelObject.transform.hasChanged = false;
                     m_Transforms.Add(modelObject.transform);
                 }
@@ -197,6 +263,8 @@ namespace SdfRenderer
             m_BuiltCount = m_ModelCount;
             m_BuiltMaterialCount = m_MaterialCount;
             m_BuiltSpacing = m_Spacing;
+            m_BuiltOperations = m_IncludeOperations;
+            m_BuiltModifiers = m_IncludeModifiers;
             m_PreviousAnimation = SDFBenchmarkAnimation.None;
         }
 
@@ -205,6 +273,8 @@ namespace SdfRenderer
             if (m_BuiltCount != m_ModelCount ||
                 m_BuiltMaterialCount != m_MaterialCount ||
                 !Mathf.Approximately(m_BuiltSpacing, m_Spacing) ||
+                m_BuiltOperations != m_IncludeOperations ||
+                m_BuiltModifiers != m_IncludeModifiers ||
                 m_GeneratedRoot == null)
                 Rebuild();
         }
@@ -218,10 +288,14 @@ namespace SdfRenderer
                 else DestroyImmediate(m_GeneratedRoot.gameObject);
             }
             m_GeneratedRoot = null;
+            m_Operations = null;
+            m_Modifiers = null;
             DestroyMaterials();
             m_BuiltCount = -1;
             m_BuiltMaterialCount = -1;
             m_BuiltSpacing = -1f;
+            m_BuiltOperations = false;
+            m_BuiltModifiers = false;
             m_PreviousAnimation = SDFBenchmarkAnimation.None;
         }
 
@@ -255,6 +329,38 @@ namespace SdfRenderer
                 else DestroyImmediate(m_Materials[i]);
             }
             m_Materials = null;
+        }
+
+        private static void ConfigureModifier(SDFModifier modifier, SDFShape shape, int index)
+        {
+            modifier.Type = (SDFModifierType)(index % 10);
+            modifier.Axes = modifier.Type == SDFModifierType.Twist || modifier.Type == SDFModifierType.Bend
+                ? SDFModifierAxes.Y : SDFModifierAxes.X;
+            modifier.Count = new Vector3Int(1, 0, 0);
+            modifier.Amount = 0.12f;
+            modifier.Vector = modifier.Type == SDFModifierType.FiniteRepeat || modifier.Type == SDFModifierType.InfiniteRepeat
+                ? new Vector3(1.25f, 1f, 1f) : new Vector3(0.18f, 0f, 0f);
+            if (modifier.Type == SDFModifierType.InfiniteRepeat)
+                shape.ClipBounds = new Bounds(Vector3.zero, Vector3.one * 1.8f);
+        }
+
+        private static void AnimateModifier(SDFModifier modifier, int index, float time, bool animate)
+        {
+            float wave = animate ? Mathf.Sin(time * 1.25f + index * 0.23f) : 0f;
+            switch (modifier.Type)
+            {
+                case SDFModifierType.Elongate:
+                case SDFModifierType.Mirror:
+                    modifier.Vector = new Vector3(0.18f + wave * 0.1f, 0f, 0f);
+                    break;
+                case SDFModifierType.FiniteRepeat:
+                case SDFModifierType.InfiniteRepeat:
+                    modifier.Vector = new Vector3(1.25f + wave * 0.18f, 1f, 1f);
+                    break;
+                default:
+                    modifier.Amount = 0.12f + wave * 0.08f;
+                    break;
+            }
         }
     }
 }

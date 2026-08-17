@@ -60,11 +60,14 @@ namespace SdfRenderer
 
         private static readonly ProfilerMarker CompileMarker = new ProfilerMarker("SDF/CPU Compile Scene");
         private static readonly ProfilerMarker TransformMarker = new ProfilerMarker("SDF/CPU Refresh Transforms");
+        private static readonly ProfilerMarker OperationMarker = new ProfilerMarker("SDF/CPU Refresh Operations");
+        private static readonly ProfilerMarker ModifierMarker = new ProfilerMarker("SDF/CPU Refresh Modifiers");
         private static readonly ProfilerMarker UploadMarker = new ProfilerMarker("SDF/CPU Upload Buffers");
 
         private struct ShapeBinding
         {
             public SDFShape Shape;
+            public SDFOperation Operation;
             public Bounds LocalBounds;
             public SDFOperationType OperationType;
             public float Smoothness;
@@ -241,8 +244,11 @@ namespace SdfRenderer
         private readonly List<SDFModel> m_ModelScratch = new List<SDFModel>(128);
         private readonly List<SDFShape> m_ShapeScratch = new List<SDFShape>(32);
         private readonly List<SDFModifier> m_ModifierScratch = new List<SDFModifier>(8);
+        private readonly List<SDFModifier> m_ModifierBindings = new List<SDFModifier>(128);
         private readonly List<ShapeBinding> m_ShapeBindings = new List<ShapeBinding>(256);
         private readonly List<ModelBinding> m_ModelBindings = new List<ModelBinding>(128);
+        private readonly List<int> m_OperationShapeIndices = new List<int>(128);
+        private readonly List<int> m_ModifiedShapeIndices = new List<int>(128);
         private readonly Dictionary<SDFMaterialAsset, int> m_MaterialLookup = new Dictionary<SDFMaterialAsset, int>();
         private readonly List<Texture2D> m_Textures = new List<Texture2D>(16);
         private readonly Dictionary<Texture2D, int> m_TextureLookup = new Dictionary<Texture2D, int>();
@@ -255,20 +261,21 @@ namespace SdfRenderer
         private const int DynamicBufferCount = 3;
         private readonly GraphicsBuffer[] m_ModelBuffers = new GraphicsBuffer[DynamicBufferCount];
         private readonly GraphicsBuffer[] m_ShapeBuffers = new GraphicsBuffer[DynamicBufferCount];
-        private GraphicsBuffer m_ModifierBuffer;
+        private readonly GraphicsBuffer[] m_ModifierBuffers = new GraphicsBuffer[DynamicBufferCount];
         private GraphicsBuffer m_MaterialBuffer;
         private int m_ModelCapacity;
         private int m_ShapeCapacity;
         private int m_ModifierCapacity;
         private int m_MaterialCapacity;
         private int m_DynamicBufferIndex;
+        private int m_ModifierBufferIndex;
         private uint m_CompiledVersion;
         private int m_LastTransformFrame = int.MinValue;
 
         internal int ModelCount => m_Models.Count;
         internal GraphicsBuffer ModelBuffer => m_ModelBuffers[m_DynamicBufferIndex];
         internal GraphicsBuffer ShapeBuffer => m_ShapeBuffers[m_DynamicBufferIndex];
-        internal GraphicsBuffer ModifierBuffer => m_ModifierBuffer;
+        internal GraphicsBuffer ModifierBuffer => m_ModifierBuffers[m_ModifierBufferIndex];
         internal GraphicsBuffer MaterialBuffer => m_MaterialBuffer;
         internal IReadOnlyList<Texture2D> Textures => m_Textures;
 
@@ -284,19 +291,32 @@ namespace SdfRenderer
             if (m_CompiledVersion == SDFSceneRegistry.Version)
                 return;
             SDFDirtyFlags dirty = SDFSceneRegistry.GetDirtyFlagsSince(m_CompiledVersion);
-            if (ModelBuffer == null || ShapeBuffer == null || m_ModifierBuffer == null || m_MaterialBuffer == null)
+            if (ModelBuffer == null || ShapeBuffer == null || ModifierBuffer == null || m_MaterialBuffer == null)
             {
                 using (CompileMarker.Auto())
                     Compile();
             }
-            else if ((dirty & ~(SDFDirtyFlags.Materials | SDFDirtyFlags.Settings | SDFDirtyFlags.Transforms)) == 0)
+            else if ((dirty & ~(SDFDirtyFlags.Materials | SDFDirtyFlags.Settings | SDFDirtyFlags.Transforms |
+                SDFDirtyFlags.Operations | SDFDirtyFlags.Modifiers)) == 0)
             {
                 if ((dirty & SDFDirtyFlags.Materials) != 0 && m_Materials.Count > 0)
                     RefreshMaterials();
-                if ((dirty & SDFDirtyFlags.Transforms) != 0 && m_Shapes.Count > 0)
+                bool modifiersChanged = (dirty & SDFDirtyFlags.Modifiers) != 0;
+                bool operationsChanged = (dirty & SDFDirtyFlags.Operations) != 0;
+                if (modifiersChanged)
+                {
+                    using (ModifierMarker.Auto())
+                        RefreshModifiers();
+                }
+                if (operationsChanged)
+                {
+                    using (OperationMarker.Auto())
+                        RefreshOperations();
+                }
+                if (((dirty & SDFDirtyFlags.Transforms) != 0 || modifiersChanged || operationsChanged) && m_Shapes.Count > 0)
                 {
                     using (TransformMarker.Auto())
-                        RefreshTransforms();
+                        RefreshDynamicData((dirty & SDFDirtyFlags.Transforms) != 0 || modifiersChanged);
                 }
             }
             else
@@ -312,7 +332,7 @@ namespace SdfRenderer
             DisposeTransformJobs();
             Release(m_ModelBuffers);
             Release(m_ShapeBuffers);
-            Release(ref m_ModifierBuffer);
+            Release(m_ModifierBuffers);
             Release(ref m_MaterialBuffer);
             m_ModelCapacity = m_ShapeCapacity = m_ModifierCapacity = m_MaterialCapacity = 0;
         }
@@ -329,6 +349,9 @@ namespace SdfRenderer
             m_ModelScratch.Clear();
             m_ShapeBindings.Clear();
             m_ModelBindings.Clear();
+            m_ModifierBindings.Clear();
+            m_OperationShapeIndices.Clear();
+            m_ModifiedShapeIndices.Clear();
 
             AddDefaultMaterial();
             m_Textures.Add(Texture2D.whiteTexture);
@@ -364,11 +387,11 @@ namespace SdfRenderer
             {
                 EnsureBuffers(m_ModelBuffers, ref m_ModelCapacity, m_Models.Count, Marshal.SizeOf<ModelGpu>(), "SDF Models");
                 EnsureBuffers(m_ShapeBuffers, ref m_ShapeCapacity, m_Shapes.Count, Marshal.SizeOf<ShapeGpu>(), "SDF Shapes");
-                EnsureBuffer(ref m_ModifierBuffer, ref m_ModifierCapacity, m_Modifiers.Count, Marshal.SizeOf<ModifierGpu>(), "SDF Modifiers");
+                EnsureBuffers(m_ModifierBuffers, ref m_ModifierCapacity, m_Modifiers.Count, Marshal.SizeOf<ModifierGpu>(), "SDF Modifiers");
                 EnsureBuffer(ref m_MaterialBuffer, ref m_MaterialCapacity, m_Materials.Count, Marshal.SizeOf<MaterialGpu>(), "SDF Materials");
                 if (m_Models.Count > 0) ModelBuffer.SetData(m_Models);
                 if (m_Shapes.Count > 0) ShapeBuffer.SetData(m_Shapes);
-                if (m_Modifiers.Count > 0) m_ModifierBuffer.SetData(m_Modifiers);
+                if (m_Modifiers.Count > 0) ModifierBuffer.SetData(m_Modifiers);
                 if (m_Materials.Count > 0) m_MaterialBuffer.SetData(m_Materials);
             }
         }
@@ -401,6 +424,7 @@ namespace SdfRenderer
 
         private void AppendShape(SDFShape shape, ref Bounds modelBounds, ref bool hasModelBounds)
         {
+            int shapeIndex = m_Shapes.Count;
             m_ModifierScratch.Clear();
             shape.GetComponents(m_ModifierScratch);
             int modifierStart = m_Modifiers.Count;
@@ -417,6 +441,7 @@ namespace SdfRenderer
                 infiniteRepeat |= modifier.Type == SDFModifierType.InfiniteRepeat;
                 ExpandBoundsForModifier(ref localBounds, modifier);
                 m_Modifiers.Add(new ModifierGpu { TypeAxesAmount = modifier.PackA(), Vector = modifier.PackB(), Count = modifier.PackC() });
+                m_ModifierBindings.Add(modifier);
             }
             if (infiniteRepeat)
                 localBounds = shape.ClipBounds;
@@ -451,11 +476,14 @@ namespace SdfRenderer
             m_ShapeBindings.Add(new ShapeBinding
             {
                 Shape = shape,
+                Operation = operation,
                 LocalBounds = localBounds,
                 OperationType = operationType,
                 Smoothness = operation != null ? operation.Smoothness : 0f,
                 CanUseBoundsDistance = canUseBoundsDistance
             });
+            if (operation != null) m_OperationShapeIndices.Add(shapeIndex);
+            if (m_Modifiers.Count > modifierStart) m_ModifiedShapeIndices.Add(shapeIndex);
             shape.transform.hasChanged = false;
 
             if (!hasModelBounds)
@@ -550,14 +578,94 @@ namespace SdfRenderer
             }
         }
 
-        private void RefreshTransforms()
+        private void RefreshOperations()
         {
-            PackShapesJob shapesJob = new PackShapesJob
+            for (int operationIndex = 0; operationIndex < m_OperationShapeIndices.Count; ++operationIndex)
             {
-                Inputs = m_ShapeTransformInputs,
-                Shapes = m_DynamicShapes
-            };
-            JobHandle shapesHandle = shapesJob.ScheduleReadOnly(m_ShapeTransforms, 64);
+                int i = m_OperationShapeIndices[operationIndex];
+                ShapeBinding binding = m_ShapeBindings[i];
+                SDFOperation operation = binding.Operation;
+                bool active = operation != null && operation.isActiveAndEnabled;
+                binding.OperationType = active ? operation.Type : SDFOperationType.Union;
+                binding.Smoothness = active ? operation.Smoothness : 0f;
+                m_ShapeBindings[i] = binding;
+
+                ShapeTransformInput input = m_ShapeTransformInputs[i];
+                input.Smoothness = binding.Smoothness;
+                m_ShapeTransformInputs[i] = input;
+
+                ShapeGpu shape = m_DynamicShapes[i];
+                shape.TypeOperationSmoothModifierStart.y = (float)binding.OperationType;
+                shape.TypeOperationSmoothModifierStart.z = binding.Smoothness * shape.MaterialModifierCountDistanceScaleBoundsScale.z;
+                m_DynamicShapes[i] = shape;
+            }
+        }
+
+        private void RefreshModifiers()
+        {
+            for (int i = 0; i < m_ModifierBindings.Count; ++i)
+            {
+                SDFModifier modifier = m_ModifierBindings[i];
+                if (modifier == null)
+                    continue;
+                m_Modifiers[i] = new ModifierGpu
+                {
+                    TypeAxesAmount = modifier.PackA(),
+                    Vector = modifier.PackB(),
+                    Count = modifier.PackC()
+                };
+            }
+
+            for (int modifiedIndex = 0; modifiedIndex < m_ModifiedShapeIndices.Count; ++modifiedIndex)
+            {
+                int shapeIndex = m_ModifiedShapeIndices[modifiedIndex];
+                ShapeBinding binding = m_ShapeBindings[shapeIndex];
+                Bounds localBounds = binding.Shape.GetLocalBounds();
+                ShapeGpu shape = m_DynamicShapes[shapeIndex];
+                int modifierStart = (int)shape.TypeOperationSmoothModifierStart.w;
+                int modifierCount = (int)shape.MaterialModifierCountDistanceScaleBoundsScale.y;
+                bool canUseBoundsDistance = true;
+                bool infiniteRepeat = false;
+                int modifierEnd = modifierStart + modifierCount;
+                for (int modifierIndex = modifierStart; modifierIndex < modifierEnd; ++modifierIndex)
+                {
+                    SDFModifier modifier = m_ModifierBindings[modifierIndex];
+                    canUseBoundsDistance &= !modifier.InvalidatesBoundsDistance;
+                    infiniteRepeat |= modifier.Type == SDFModifierType.InfiniteRepeat;
+                    ExpandBoundsForModifier(ref localBounds, modifier);
+                }
+                if (infiniteRepeat)
+                    localBounds = binding.Shape.ClipBounds;
+
+                binding.LocalBounds = localBounds;
+                binding.CanUseBoundsDistance = canUseBoundsDistance;
+                m_ShapeBindings[shapeIndex] = binding;
+                ShapeTransformInput input = m_ShapeTransformInputs[shapeIndex];
+                input.LocalCenter = localBounds.center;
+                input.LocalExtents = localBounds.extents;
+                input.CanUseBoundsDistance = canUseBoundsDistance ? 1 : 0;
+                m_ShapeTransformInputs[shapeIndex] = input;
+            }
+
+            using (UploadMarker.Auto())
+            {
+                m_ModifierBufferIndex = (m_ModifierBufferIndex + 1) % DynamicBufferCount;
+                if (m_Modifiers.Count > 0) ModifierBuffer.SetData(m_Modifiers);
+            }
+        }
+
+        private void RefreshDynamicData(bool packShapes)
+        {
+            JobHandle shapesHandle = default;
+            if (packShapes)
+            {
+                PackShapesJob shapesJob = new PackShapesJob
+                {
+                    Inputs = m_ShapeTransformInputs,
+                    Shapes = m_DynamicShapes
+                };
+                shapesHandle = shapesJob.ScheduleReadOnly(m_ShapeTransforms, 64);
+            }
             PackModelsJob modelsJob = new PackModelsJob
             {
                 Inputs = m_ModelTransformInputs,

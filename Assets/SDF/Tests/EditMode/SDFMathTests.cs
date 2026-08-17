@@ -168,6 +168,34 @@ namespace SdfRenderer.Tests
         }
 
         [Test]
+        public void RuntimeOperationAndModifierParametersUseIncrementalDirtyFlags()
+        {
+            GameObject gameObject = new GameObject("Dynamic SDF Components");
+            try
+            {
+                SDFOperation operation = gameObject.AddComponent<SDFOperation>();
+                SDFModifier modifier = gameObject.AddComponent<SDFModifier>();
+                uint beforeOperation = SDFSceneRegistry.Version;
+                operation.Type = SDFOperationType.SmoothSubtraction;
+                operation.Smoothness = 0.37f;
+                Assert.That(SDFSceneRegistry.GetDirtyFlagsSince(beforeOperation), Is.EqualTo(SDFDirtyFlags.Operations));
+
+                uint beforeModifier = SDFSceneRegistry.Version;
+                modifier.Type = SDFModifierType.Twist;
+                modifier.Amount = 0.42f;
+                Assert.That(SDFSceneRegistry.GetDirtyFlagsSince(beforeModifier), Is.EqualTo(SDFDirtyFlags.Modifiers));
+            }
+            finally { Object.DestroyImmediate(gameObject); }
+        }
+
+        [Test]
+        public void BenchmarkEverythingIncludesOperationsAndModifiers()
+        {
+            Assert.That((SDFBenchmarkAnimation.Everything & SDFBenchmarkAnimation.Operations) != 0, Is.True);
+            Assert.That((SDFBenchmarkAnimation.Everything & SDFBenchmarkAnimation.Modifiers) != 0, Is.True);
+        }
+
+        [Test]
         public void CpuScenePickerRayHitsAnalyticSphereSurface()
         {
             GameObject gameObject = new GameObject("Pickable SDF Sphere");

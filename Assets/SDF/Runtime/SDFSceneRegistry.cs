@@ -16,6 +16,7 @@ namespace SdfRenderer
         Bounds = 1 << 4,
         Settings = 1 << 5,
         Transforms = 1 << 6,
+        Operations = 1 << 7,
         All = ~0
     }
 

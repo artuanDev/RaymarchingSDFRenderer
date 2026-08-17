@@ -151,9 +151,11 @@ MonoBehaviour:
   m_ModelCount: 10000
   m_Spacing: 2.5
   m_Animation: -1
+  m_IncludeOperations: 1
+  m_IncludeModifiers: 1
   m_MaterialCount: 8
   m_AnimationSpeed: 1
-  m_PreviewInEditMode: 0
+  m_PreviewInEditMode: 1
 --- !u!4 &1020283552
 Transform:
   m_ObjectHideFlags: 0

@@ -169,7 +169,13 @@ namespace SdfRenderer.Editor
         {
             Scene scene = NewLitScene();
             GameObject controller = new GameObject("SDF Benchmark Controller");
-            controller.AddComponent<SDFBenchmarkController>();
+            SDFBenchmarkController benchmark = controller.AddComponent<SDFBenchmarkController>();
+            SerializedObject benchmarkData = new SerializedObject(benchmark);
+            benchmarkData.FindProperty("m_ModelCount").intValue = 10000;
+            benchmarkData.FindProperty("m_Animation").intValue = -1;
+            benchmarkData.FindProperty("m_IncludeOperations").boolValue = true;
+            benchmarkData.FindProperty("m_IncludeModifiers").boolValue = true;
+            benchmarkData.ApplyModifiedPropertiesWithoutUndo();
             FrameCamera(scene, new Vector3(0f, 35f, -35f), Vector3.zero);
             SaveAndClose(scene, Folder + "/SDFBenchmark.unity");
         }
