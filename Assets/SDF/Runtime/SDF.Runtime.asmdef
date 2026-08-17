@@ -3,6 +3,9 @@
   "rootNamespace": "SdfRenderer",
   "references": [
     "SDF.Generated",
+    "Unity.Burst",
+    "Unity.Collections",
+    "Unity.Mathematics",
     "Unity.RenderPipelines.Core.Runtime",
     "Unity.RenderPipelines.Universal.Runtime"
   ],

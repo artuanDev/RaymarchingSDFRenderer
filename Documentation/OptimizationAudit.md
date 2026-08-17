@@ -11,6 +11,7 @@ Reference inspected read-only: `D:\Unity\SDF_Rendering`.
 | Batched changes | Retained through `SDFSceneRegistry.BatchChanges()`. |
 | Geometric buffer growth | Retained; capacities grow to powers of two and resources are reused. |
 | Dynamic buffer uploads | Extended with a three-buffer model/shape ring to avoid overwriting buffers still consumed by preceding GPU frames. |
+| Dynamic transform packing | Extended with Burst-compiled `IJobParallelForTransform` shape packing and parallel model-bounds aggregation. The component benchmark also animates real Unity transforms through a Burst transform job. |
 | Procedural 36-vertex model bounds | Retained as instanced invisible proxy geometry. |
 | Ray/AABB entry and exit | Retained, including inside-camera winding handling. |
 | Per-shape AABB skip | Retained only for operations and modifiers for which the bound remains conservative. |

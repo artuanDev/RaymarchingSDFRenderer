@@ -1,8 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using Unity.Burst;
+using Unity.Collections;
+using Unity.Jobs;
+using Unity.Mathematics;
 using Unity.Profiling;
 using UnityEngine;
+using UnityEngine.Jobs;
 using UnityEngine.Rendering;
 using SdfRenderer.Generated;
 
@@ -74,6 +79,161 @@ namespace SdfRenderer
             public bool RenderInSceneView;
         }
 
+        private struct ShapeTransformInput
+        {
+            public Vector3 LocalCenter;
+            public Vector3 LocalExtents;
+            public float Smoothness;
+            public int CanUseBoundsDistance;
+        }
+
+        private struct ModelTransformInput
+        {
+            public int ShapeStart;
+            public int ShapeCount;
+            public float Padding;
+            public int RenderInSceneView;
+        }
+
+        [BurstCompile]
+        private struct PackShapesJob : IJobParallelForTransform
+        {
+            [ReadOnly] public NativeArray<ShapeTransformInput> Inputs;
+            public NativeArray<ShapeGpu> Shapes;
+
+            public void Execute(int index, TransformAccess transform)
+            {
+                ShapeTransformInput input = Inputs[index];
+                ShapeGpu shape = Shapes[index];
+                Matrix4x4 localToWorld = transform.localToWorldMatrix;
+                Matrix4x4 worldToLocal = transform.worldToLocalMatrix;
+
+                shape.WorldToLocal0 = new Vector4(worldToLocal.m00, worldToLocal.m01, worldToLocal.m02, worldToLocal.m03);
+                shape.WorldToLocal1 = new Vector4(worldToLocal.m10, worldToLocal.m11, worldToLocal.m12, worldToLocal.m13);
+                shape.WorldToLocal2 = new Vector4(worldToLocal.m20, worldToLocal.m21, worldToLocal.m22, worldToLocal.m23);
+
+                Vector3 center = input.LocalCenter;
+                Vector3 extents = input.LocalExtents;
+                Vector3 worldCenter = new Vector3(
+                    localToWorld.m00 * center.x + localToWorld.m01 * center.y + localToWorld.m02 * center.z + localToWorld.m03,
+                    localToWorld.m10 * center.x + localToWorld.m11 * center.y + localToWorld.m12 * center.z + localToWorld.m13,
+                    localToWorld.m20 * center.x + localToWorld.m21 * center.y + localToWorld.m22 * center.z + localToWorld.m23);
+                Vector3 worldExtents = new Vector3(
+                    math.abs(localToWorld.m00) * extents.x + math.abs(localToWorld.m01) * extents.y + math.abs(localToWorld.m02) * extents.z,
+                    math.abs(localToWorld.m10) * extents.x + math.abs(localToWorld.m11) * extents.y + math.abs(localToWorld.m12) * extents.z,
+                    math.abs(localToWorld.m20) * extents.x + math.abs(localToWorld.m21) * extents.y + math.abs(localToWorld.m22) * extents.z);
+                worldExtents += Vector3.one * 0.002f;
+
+                GetScaleRange(localToWorld, worldToLocal, out float distanceScale, out float maximumScale);
+
+                shape.TypeOperationSmoothModifierStart.z = input.Smoothness * distanceScale;
+                shape.MaterialModifierCountDistanceScaleBoundsScale.z = distanceScale;
+                shape.MaterialModifierCountDistanceScaleBoundsScale.w = input.CanUseBoundsDistance != 0
+                    ? math.saturate(distanceScale / maximumScale) : 0f;
+                shape.BoundsMin = worldCenter - worldExtents;
+                shape.BoundsMax = worldCenter + worldExtents;
+                Shapes[index] = shape;
+            }
+
+            private static void GetScaleRange(Matrix4x4 localToWorld, Matrix4x4 worldToLocal, out float minimum, out float maximum)
+            {
+                float3 x = new float3(localToWorld.m00, localToWorld.m10, localToWorld.m20);
+                float3 y = new float3(localToWorld.m01, localToWorld.m11, localToWorld.m21);
+                float3 z = new float3(localToWorld.m02, localToWorld.m12, localToWorld.m22);
+                float scaleX = math.length(x);
+                float scaleY = math.length(y);
+                float scaleZ = math.length(z);
+                float orthogonality = math.max(
+                    math.abs(math.dot(x, y)) / math.max(0.000001f, scaleX * scaleY),
+                    math.max(
+                        math.abs(math.dot(x, z)) / math.max(0.000001f, scaleX * scaleZ),
+                        math.abs(math.dot(y, z)) / math.max(0.000001f, scaleY * scaleZ)));
+                if (orthogonality < 0.0001f)
+                {
+                    minimum = math.max(0.000001f, math.min(scaleX, math.min(scaleY, scaleZ)));
+                    maximum = math.max(0.000001f, math.max(scaleX, math.max(scaleY, scaleZ)));
+                    return;
+                }
+
+                // For a sheared hierarchy, column lengths are not singular values.
+                // Matrix norm bounds keep distance stepping conservative without an
+                // expensive singular-value decomposition in every transform job.
+                float worldNormOne = math.max(
+                    math.abs(localToWorld.m00) + math.abs(localToWorld.m10) + math.abs(localToWorld.m20),
+                    math.max(
+                        math.abs(localToWorld.m01) + math.abs(localToWorld.m11) + math.abs(localToWorld.m21),
+                        math.abs(localToWorld.m02) + math.abs(localToWorld.m12) + math.abs(localToWorld.m22)));
+                float worldNormInfinity = math.max(
+                    math.abs(localToWorld.m00) + math.abs(localToWorld.m01) + math.abs(localToWorld.m02),
+                    math.max(
+                        math.abs(localToWorld.m10) + math.abs(localToWorld.m11) + math.abs(localToWorld.m12),
+                        math.abs(localToWorld.m20) + math.abs(localToWorld.m21) + math.abs(localToWorld.m22)));
+                float inverseNormOne = math.max(
+                    math.abs(worldToLocal.m00) + math.abs(worldToLocal.m10) + math.abs(worldToLocal.m20),
+                    math.max(
+                        math.abs(worldToLocal.m01) + math.abs(worldToLocal.m11) + math.abs(worldToLocal.m21),
+                        math.abs(worldToLocal.m02) + math.abs(worldToLocal.m12) + math.abs(worldToLocal.m22)));
+                float inverseNormInfinity = math.max(
+                    math.abs(worldToLocal.m00) + math.abs(worldToLocal.m01) + math.abs(worldToLocal.m02),
+                    math.max(
+                        math.abs(worldToLocal.m10) + math.abs(worldToLocal.m11) + math.abs(worldToLocal.m12),
+                        math.abs(worldToLocal.m20) + math.abs(worldToLocal.m21) + math.abs(worldToLocal.m22)));
+                minimum = math.max(0.000001f, math.rsqrt(math.max(0.000001f, inverseNormOne * inverseNormInfinity)));
+                maximum = math.max(0.000001f, math.sqrt(math.max(0.000001f, worldNormOne * worldNormInfinity)));
+            }
+        }
+
+        [BurstCompile]
+        private struct PackModelsJob : IJobParallelFor
+        {
+            [ReadOnly] public NativeArray<ModelTransformInput> Inputs;
+            [ReadOnly] public NativeArray<ShapeGpu> Shapes;
+            public NativeArray<ModelGpu> Models;
+
+            public void Execute(int index)
+            {
+                ModelTransformInput input = Inputs[index];
+                Vector3 minimum = default;
+                Vector3 maximum = default;
+                bool hasBounds = false;
+                int end = input.ShapeStart + input.ShapeCount;
+                for (int shapeIndex = input.ShapeStart; shapeIndex < end; ++shapeIndex)
+                {
+                    ShapeGpu shape = Shapes[shapeIndex];
+                    Vector3 shapeMinimum = shape.BoundsMin;
+                    Vector3 shapeMaximum = shape.BoundsMax;
+                    SDFOperationType operation = (SDFOperationType)(int)shape.TypeOperationSmoothModifierStart.y;
+                    if (!hasBounds)
+                    {
+                        minimum = shapeMinimum;
+                        maximum = shapeMaximum;
+                        hasBounds = true;
+                    }
+                    else if (operation == SDFOperationType.Union || operation == SDFOperationType.SmoothUnion)
+                    {
+                        minimum = new Vector3(math.min(minimum.x, shapeMinimum.x), math.min(minimum.y, shapeMinimum.y), math.min(minimum.z, shapeMinimum.z));
+                        maximum = new Vector3(math.max(maximum.x, shapeMaximum.x), math.max(maximum.y, shapeMaximum.y), math.max(maximum.z, shapeMaximum.z));
+                        if (operation == SDFOperationType.SmoothUnion)
+                        {
+                            float smoothness = shape.TypeOperationSmoothModifierStart.z;
+                            minimum -= Vector3.one * smoothness;
+                            maximum += Vector3.one * smoothness;
+                        }
+                    }
+                }
+
+                float padding = math.max(0f, input.Padding);
+                minimum -= Vector3.one * padding;
+                maximum += Vector3.one * padding;
+                Models[index] = new ModelGpu
+                {
+                    BoundsMinAndShapeStart = new Vector4(minimum.x, minimum.y, minimum.z, input.ShapeStart),
+                    BoundsMaxAndShapeCount = new Vector4(maximum.x, maximum.y, maximum.z,
+                        input.RenderInSceneView != 0 ? input.ShapeCount : -input.ShapeCount)
+                };
+            }
+        }
+
         private readonly List<ModelGpu> m_Models = new List<ModelGpu>(128);
         private readonly List<ShapeGpu> m_Shapes = new List<ShapeGpu>(256);
         private readonly List<ModifierGpu> m_Modifiers = new List<ModifierGpu>(128);
@@ -86,6 +246,11 @@ namespace SdfRenderer
         private readonly Dictionary<SDFMaterialAsset, int> m_MaterialLookup = new Dictionary<SDFMaterialAsset, int>();
         private readonly List<Texture2D> m_Textures = new List<Texture2D>(16);
         private readonly Dictionary<Texture2D, int> m_TextureLookup = new Dictionary<Texture2D, int>();
+        private TransformAccessArray m_ShapeTransforms;
+        private NativeArray<ShapeTransformInput> m_ShapeTransformInputs;
+        private NativeArray<ModelTransformInput> m_ModelTransformInputs;
+        private NativeArray<ShapeGpu> m_DynamicShapes;
+        private NativeArray<ModelGpu> m_DynamicModels;
 
         private const int DynamicBufferCount = 3;
         private readonly GraphicsBuffer[] m_ModelBuffers = new GraphicsBuffer[DynamicBufferCount];
@@ -144,6 +309,7 @@ namespace SdfRenderer
 
         public void Dispose()
         {
+            DisposeTransformJobs();
             Release(m_ModelBuffers);
             Release(m_ShapeBuffers);
             Release(ref m_ModifierBuffer);
@@ -191,6 +357,8 @@ namespace SdfRenderer
                     m_ModelBindings.Add(new ModelBinding { ShapeStart = start, ShapeCount = 1, Padding = 0.02f, RenderInSceneView = true });
                 }
             }
+
+            PrepareTransformJobs();
 
             using (UploadMarker.Auto())
             {
@@ -384,74 +552,76 @@ namespace SdfRenderer
 
         private void RefreshTransforms()
         {
-            for (int i = 0; i < m_ShapeBindings.Count; ++i)
+            PackShapesJob shapesJob = new PackShapesJob
             {
-                ShapeBinding binding = m_ShapeBindings[i];
-                SDFShape shape = binding.Shape;
-                if (shape == null)
-                    continue;
-
-                ShapeGpu gpu = m_Shapes[i];
-                Matrix4x4 worldToLocal = shape.transform.worldToLocalMatrix;
-                gpu.WorldToLocal0 = new Vector4(worldToLocal.m00, worldToLocal.m01, worldToLocal.m02, worldToLocal.m03);
-                gpu.WorldToLocal1 = new Vector4(worldToLocal.m10, worldToLocal.m11, worldToLocal.m12, worldToLocal.m13);
-                gpu.WorldToLocal2 = new Vector4(worldToLocal.m20, worldToLocal.m21, worldToLocal.m22, worldToLocal.m23);
-
-                Bounds worldBounds = TransformBounds(shape.transform.localToWorldMatrix, binding.LocalBounds);
-                worldBounds.Expand(0.004f);
-                shape.GetScaleRange(out float distanceScale, out float maximumScale);
-                float boundsScale = binding.CanUseBoundsDistance ? Mathf.Clamp01(distanceScale / maximumScale) : 0f;
-                gpu.TypeOperationSmoothModifierStart.z = binding.Smoothness * distanceScale;
-                gpu.MaterialModifierCountDistanceScaleBoundsScale.z = distanceScale;
-                gpu.MaterialModifierCountDistanceScaleBoundsScale.w = boundsScale;
-                gpu.BoundsMin = worldBounds.min;
-                gpu.BoundsMax = worldBounds.max;
-                m_Shapes[i] = gpu;
-            }
-
-            for (int modelIndex = 0; modelIndex < m_ModelBindings.Count; ++modelIndex)
+                Inputs = m_ShapeTransformInputs,
+                Shapes = m_DynamicShapes
+            };
+            JobHandle shapesHandle = shapesJob.ScheduleReadOnly(m_ShapeTransforms, 64);
+            PackModelsJob modelsJob = new PackModelsJob
             {
-                ModelBinding binding = m_ModelBindings[modelIndex];
-                Bounds bounds = default;
-                bool hasBounds = false;
-                int end = binding.ShapeStart + binding.ShapeCount;
-                for (int shapeIndex = binding.ShapeStart; shapeIndex < end; ++shapeIndex)
-                {
-                    ShapeGpu shape = m_Shapes[shapeIndex];
-                    Bounds shapeBounds = new Bounds();
-                    shapeBounds.SetMinMax(shape.BoundsMin, shape.BoundsMax);
-                    SDFOperationType operation = m_ShapeBindings[shapeIndex].OperationType;
-                    if (!hasBounds)
-                    {
-                        bounds = shapeBounds;
-                        hasBounds = true;
-                    }
-                    else if (operation == SDFOperationType.Union || operation == SDFOperationType.SmoothUnion)
-                    {
-                        bounds.Encapsulate(shapeBounds);
-                        if (operation == SDFOperationType.SmoothUnion)
-                            bounds.Expand(shape.TypeOperationSmoothModifierStart.z * 2f);
-                    }
-                }
-
-                if (hasBounds)
-                {
-                    bounds.Expand(Mathf.Max(0f, binding.Padding) * 2f);
-                    m_Models[modelIndex] = new ModelGpu
-                    {
-                        BoundsMinAndShapeStart = new Vector4(bounds.min.x, bounds.min.y, bounds.min.z, binding.ShapeStart),
-                        BoundsMaxAndShapeCount = new Vector4(bounds.max.x, bounds.max.y, bounds.max.z,
-                            binding.RenderInSceneView ? binding.ShapeCount : -binding.ShapeCount)
-                    };
-                }
-            }
+                Inputs = m_ModelTransformInputs,
+                Shapes = m_DynamicShapes,
+                Models = m_DynamicModels
+            };
+            JobHandle modelsHandle = modelsJob.Schedule(m_DynamicModels.Length, 64, shapesHandle);
+            modelsHandle.Complete();
 
             using (UploadMarker.Auto())
             {
                 m_DynamicBufferIndex = (m_DynamicBufferIndex + 1) % DynamicBufferCount;
-                ShapeBuffer.SetData(m_Shapes);
-                ModelBuffer.SetData(m_Models);
+                ShapeBuffer.SetData(m_DynamicShapes);
+                ModelBuffer.SetData(m_DynamicModels);
             }
+        }
+
+        private void PrepareTransformJobs()
+        {
+            DisposeTransformJobs();
+            if (m_ShapeBindings.Count == 0 || m_ModelBindings.Count == 0)
+                return;
+
+            m_ShapeTransforms = new TransformAccessArray(m_ShapeBindings.Count);
+            m_ShapeTransformInputs = new NativeArray<ShapeTransformInput>(m_ShapeBindings.Count, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+            m_ModelTransformInputs = new NativeArray<ModelTransformInput>(m_ModelBindings.Count, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+            m_DynamicShapes = new NativeArray<ShapeGpu>(m_Shapes.Count, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+            m_DynamicModels = new NativeArray<ModelGpu>(m_Models.Count, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+
+            for (int i = 0; i < m_ShapeBindings.Count; ++i)
+            {
+                ShapeBinding binding = m_ShapeBindings[i];
+                m_ShapeTransforms.Add(binding.Shape.transform);
+                m_ShapeTransformInputs[i] = new ShapeTransformInput
+                {
+                    LocalCenter = binding.LocalBounds.center,
+                    LocalExtents = binding.LocalBounds.extents,
+                    Smoothness = binding.Smoothness,
+                    CanUseBoundsDistance = binding.CanUseBoundsDistance ? 1 : 0
+                };
+                m_DynamicShapes[i] = m_Shapes[i];
+            }
+
+            for (int i = 0; i < m_ModelBindings.Count; ++i)
+            {
+                ModelBinding binding = m_ModelBindings[i];
+                m_ModelTransformInputs[i] = new ModelTransformInput
+                {
+                    ShapeStart = binding.ShapeStart,
+                    ShapeCount = binding.ShapeCount,
+                    Padding = binding.Padding,
+                    RenderInSceneView = binding.RenderInSceneView ? 1 : 0
+                };
+                m_DynamicModels[i] = m_Models[i];
+            }
+        }
+
+        private void DisposeTransformJobs()
+        {
+            if (m_ShapeTransforms.isCreated) m_ShapeTransforms.Dispose();
+            if (m_ShapeTransformInputs.IsCreated) m_ShapeTransformInputs.Dispose();
+            if (m_ModelTransformInputs.IsCreated) m_ModelTransformInputs.Dispose();
+            if (m_DynamicShapes.IsCreated) m_DynamicShapes.Dispose();
+            if (m_DynamicModels.IsCreated) m_DynamicModels.Dispose();
         }
 
         private int GetTextureIndex(Texture2D texture)

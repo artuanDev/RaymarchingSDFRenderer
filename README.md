@@ -15,7 +15,7 @@ This project contains an analytic, GPU-buffer-driven signed-distance-field rende
 
 The renderer never creates a reduced-resolution SDF target. Invisible instanced AABB geometry restricts fragment work, while the shader analytically sphere-traces inside each model volume and writes the hit's device depth.
 
-The `SDFBenchmarkController` supports up to 10,000 generated models. Its **Animation** flags can independently enable **Positions**, **Rotations**, **Scales**, **Materials**, any combination, or **Everything**. Transform animation uses the renderer's cached matrix/bounds refresh path; it does not rebuild shape topology, modifiers, or materials each frame.
+The `SDFBenchmarkController` supports up to 10,000 generated models. Its **Animation** flags can independently enable **Positions**, **Rotations**, **Scales**, **Materials**, any combination, or **Everything**. Transform animation and renderer matrix/bounds packing use Burst-compiled transform jobs across worker threads; they do not rebuild shape topology, modifiers, or materials each frame.
 
 On first successful Unity import, the setup generates the settings asset, installs the renderer feature, compiles the `.sdfshader` registry, and creates the four sample scenes under `Assets/SDF/Samples`. Run the `SDF.EditModeTests` and `SDF.PlayModeTests` assemblies from **Window > General > Test Runner** after the import finishes.
 

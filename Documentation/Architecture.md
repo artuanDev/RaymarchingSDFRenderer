@@ -4,7 +4,7 @@
 
 An `SDFModel` owns an ordered hierarchy of `SDFShape` operands. Each shape has an `SDFOperation`; the first operand seeds the fold and later operands apply union, subtraction, intersection, or their smooth variants. Multiple `SDFModifier` components form an ordered domain stack. A shape can reference `SDFMaterialAsset`, while `SDFCustomMaterial` provides a component-level override.
 
-`SDFSceneRegistry` is event-driven. Components register on enable and increment a version on serialized, animated, topology, transform, modifier, material, or bounds changes. `SDFSceneData` only rebuilds topology when structural shape data changes. Transform-only changes reuse cached shape/model bindings and update just world matrices, conservative bounds, scale corrections, and their persistent GPU buffers. Material-only changes rebuild only the compact material buffer. Buffer capacity grows by powers of two and is reused.
+`SDFSceneRegistry` is event-driven. Components register on enable and increment a version on serialized, animated, topology, transform, modifier, material, or bounds changes. `SDFSceneData` only rebuilds topology when structural shape data changes. Transform-only changes reuse cached shape/model bindings; Burst-compiled transform and model jobs update world matrices, conservative bounds, and scale corrections in parallel before uploading persistent GPU buffers. Material-only changes rebuild only the compact material buffer. Buffer capacity grows by powers of two and is reused.
 
 ## GPU data and rendering
 

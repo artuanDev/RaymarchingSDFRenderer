@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Unity.Profiling;
 using UnityEngine;
 
 namespace SdfRenderer
@@ -22,6 +23,7 @@ namespace SdfRenderer
     {
         private static readonly HashSet<SDFModel> Models = new HashSet<SDFModel>();
         private static readonly HashSet<SDFShape> Shapes = new HashSet<SDFShape>();
+        private static readonly ProfilerMarker TransformScanMarker = new ProfilerMarker("SDF/CPU Transform Scan");
         private const int ChangeHistorySize = 256;
         private static readonly uint[] ChangeVersions = new uint[ChangeHistorySize];
         private static readonly SDFDirtyFlags[] ChangeFlags = new SDFDirtyFlags[ChangeHistorySize];
@@ -124,16 +126,19 @@ namespace SdfRenderer
 
         internal static void CheckForTransformChanges()
         {
-            bool changed = false;
-            foreach (SDFShape shape in Shapes)
+            using (TransformScanMarker.Auto())
             {
-                if (shape == null || !shape.transform.hasChanged)
-                    continue;
-                shape.transform.hasChanged = false;
-                changed = true;
+                bool changed = false;
+                foreach (SDFShape shape in Shapes)
+                {
+                    if (shape == null || !shape.transform.hasChanged)
+                        continue;
+                    shape.transform.hasChanged = false;
+                    changed = true;
+                }
+                if (changed)
+                    MarkDirty(SDFDirtyFlags.Transforms);
             }
-            if (changed)
-                MarkDirty(SDFDirtyFlags.Transforms);
         }
 
         private static void EndBatch()
