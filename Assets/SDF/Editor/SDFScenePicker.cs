@@ -46,10 +46,10 @@ namespace SdfRenderer.Editor
             int pickerControl = GUIUtility.GetControlID(PickerControlHint, FocusType.Passive);
             if (current.type == EventType.Layout)
             {
-                // Behave like Unity's normal scene-selection fallback. Transform
-                // handles, custom handles, and gizmos register closer controls and
-                // therefore retain priority over SDF surface picking.
-                HandleUtility.AddDefaultControl(pickerControl);
+                // Register only over a real, visible SDF surface. Unlike a default
+                // control this does not steal ordinary geometry or empty-space clicks.
+                if (TryRaycastSdf(sceneView, current.mousePosition, out _, out _, out _))
+                    HandleUtility.AddControl(pickerControl, 0f);
                 return;
             }
 
@@ -60,11 +60,36 @@ namespace SdfRenderer.Editor
                 HandleUtility.nearestControl != pickerControl)
                 return;
 
-            Ray ray = HandleUtility.GUIPointToWorldRay(current.mousePosition);
+            if (!TryRaycastSdf(sceneView, current.mousePosition, out SDFShape bestShape,
+                    out float bestDistance, out Ray ray))
+                return;
+
+            GameObject target = bestShape.gameObject;
+            // PickGameObject performs an internal rendered pick, so it must never run
+            // during Layout. On the actual click it lets regular geometry in front of
+            // an SDF win while the conditional SDF control remains responsible for the
+            // event itself.
+            GameObject conventionalPick = HandleUtility.PickGameObject(current.mousePosition, false);
+            if (conventionalPick != null && conventionalPick.GetComponentInParent<SDFShape>() == null &&
+                (!TryGetConventionalDistance(conventionalPick, ray, out float conventionalDistance) ||
+                 conventionalDistance + 0.001f < bestDistance))
+                target = conventionalPick;
+
+            // Match Unity's normal selection modifiers: Shift adds to the current
+            // selection and Ctrl/Cmd toggles the clicked item.
+            ApplySelection(target, current.shift, EditorGUI.actionKey);
+            current.Use();
+            SceneView.RepaintAll();
+        }
+
+        private static bool TryRaycastSdf(SceneView sceneView, Vector2 mousePosition,
+            out SDFShape bestShape, out float bestDistance, out Ray ray)
+        {
+            ray = HandleUtility.GUIPointToWorldRay(mousePosition);
             float maximumDistance = sceneView.camera != null ? sceneView.camera.farClipPlane : 100000f;
             SDFSceneRegistry.GetRegisteredShapes(Shapes);
-            SDFShape bestShape = null;
-            float bestDistance = maximumDistance;
+            bestShape = null;
+            bestDistance = maximumDistance;
             for (int i = 0; i < Shapes.Count; ++i)
             {
                 SDFShape shape = Shapes[i];
@@ -79,19 +104,7 @@ namespace SdfRenderer.Editor
                     bestShape = shape;
                 }
             }
-            if (bestShape == null)
-                return;
-
-            GameObject conventionalPick = HandleUtility.PickGameObject(current.mousePosition, false);
-            if (conventionalPick != null && conventionalPick.GetComponentInParent<SDFShape>() == null)
-            {
-                if (!TryGetConventionalDistance(conventionalPick, ray, out float conventionalDistance) || conventionalDistance + 0.001f < bestDistance)
-                    return;
-            }
-
-            ApplySelection(bestShape.gameObject, current.shift, EditorGUI.actionKey);
-            current.Use();
-            SceneView.RepaintAll();
+            return bestShape != null;
         }
 
         private static bool TryGetConventionalDistance(GameObject gameObject, Ray ray, out float distance)
@@ -129,8 +142,6 @@ namespace SdfRenderer.Editor
             else if (index < 0)
                 SelectionScratch.Add(target);
             Selection.objects = SelectionScratch.ToArray();
-            if (SelectionScratch.Contains(target))
-                Selection.activeGameObject = target;
         }
     }
 }

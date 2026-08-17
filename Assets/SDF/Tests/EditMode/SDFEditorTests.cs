@@ -55,5 +55,33 @@ namespace SdfRenderer.Tests
                 .ToArray();
             Assert.That(errors, Is.Empty, string.Join("\n", errors.Select(error => error.message)));
         }
+
+        [Test]
+        public void ScenePickerSupportsReplaceAddAndToggleSelection()
+        {
+            Object[] originalSelection = Selection.objects;
+            GameObject first = new GameObject("First selection");
+            GameObject second = new GameObject("Second selection");
+            MethodInfo applySelection = typeof(SdfRenderer.Editor.SDFScenePicker).GetMethod(
+                "ApplySelection", BindingFlags.Static | BindingFlags.NonPublic);
+            Assert.That(applySelection, Is.Not.Null);
+            try
+            {
+                applySelection.Invoke(null, new object[] { first, false, false });
+                CollectionAssert.AreEquivalent(new Object[] { first }, Selection.objects);
+
+                applySelection.Invoke(null, new object[] { second, true, false });
+                CollectionAssert.AreEquivalent(new Object[] { first, second }, Selection.objects);
+
+                applySelection.Invoke(null, new object[] { first, false, true });
+                CollectionAssert.AreEquivalent(new Object[] { second }, Selection.objects);
+            }
+            finally
+            {
+                Selection.objects = originalSelection;
+                Object.DestroyImmediate(first);
+                Object.DestroyImmediate(second);
+            }
+        }
     }
 }
