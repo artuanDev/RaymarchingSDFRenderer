@@ -1,0 +1,18 @@
+SDFShader "Examples/Blinn Phong"
+{
+    Properties
+    {
+        _Custom0 ("Tint and Specular Power", Vector) = (0.9, 0.45, 0.15, 48)
+        _BaseMap ("Base Map", 2D) = "white"
+    }
+    HLSLPROGRAM
+    float3 SDFSurface(SDFSurfaceContext context, SDFMaterialGpu material)
+    {
+        float ndotl = saturate(dot(context.normalWS, context.lightDirectionWS));
+        float3 halfDirection = normalize(context.lightDirectionWS + context.viewDirectionWS);
+        float specular = pow(saturate(dot(context.normalWS, halfDirection)), max(material.Custom0.w, 1.0));
+        float3 tex = SampleSDFTexture((uint)(material.CustomShaderTextureIndices.y + 0.5), context.positionOS.xz).rgb;
+        return tex * material.Custom0.rgb * (context.ambientColor + context.lightColor * ndotl) + context.lightColor * specular;
+    }
+    ENDHLSL
+}

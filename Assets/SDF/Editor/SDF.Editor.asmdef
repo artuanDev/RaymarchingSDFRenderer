@@ -1,0 +1,12 @@
+{
+  "name": "SDF.Editor",
+  "rootNamespace": "SdfRenderer.Editor",
+  "references": [
+    "SDF.Generated",
+    "SDF.Runtime",
+    "Unity.RenderPipelines.Core.Runtime",
+    "Unity.RenderPipelines.Universal.Runtime"
+  ],
+  "includePlatforms": ["Editor"],
+  "autoReferenced": true
+}

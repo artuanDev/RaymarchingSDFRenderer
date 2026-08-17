@@ -1,0 +1,21 @@
+SDFShader "Examples/PBR Like"
+{
+    Properties
+    {
+        _Custom0 ("Albedo and Metallic", Vector) = (0.75, 0.78, 0.82, 0.8)
+        _Custom1 ("Smoothness", Vector) = (0.75, 0, 0, 0)
+    }
+    HLSLPROGRAM
+    float3 SDFSurface(SDFSurfaceContext context, SDFMaterialGpu material)
+    {
+        float ndotl = saturate(dot(context.normalWS, context.lightDirectionWS));
+        float3 halfDirection = normalize(context.lightDirectionWS + context.viewDirectionWS);
+        float metallic = saturate(material.Custom0.w);
+        float smoothness = saturate(material.Custom1.x);
+        float3 f0 = lerp(0.04.xxx, material.Custom0.rgb, metallic);
+        float3 diffuse = material.Custom0.rgb * (1.0 - metallic) * (context.ambientColor + context.lightColor * ndotl);
+        float specular = pow(saturate(dot(context.normalWS, halfDirection)), lerp(4.0, 256.0, smoothness));
+        return diffuse + f0 * context.lightColor * specular;
+    }
+    ENDHLSL
+}

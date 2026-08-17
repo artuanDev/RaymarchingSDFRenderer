@@ -1,0 +1,15 @@
+SDFShader "Examples/Unlit"
+{
+    Properties
+    {
+        _Custom0 ("Tint", Color) = (0.2, 0.8, 1.0, 1.0)
+        _BaseMap ("Base Map", 2D) = "white"
+    }
+    HLSLPROGRAM
+    float3 SDFSurface(SDFSurfaceContext context, SDFMaterialGpu material)
+    {
+        float3 tex = SampleSDFTexture((uint)(material.CustomShaderTextureIndices.y + 0.5), context.positionOS.xz).rgb;
+        return tex * material.Custom0.rgb;
+    }
+    ENDHLSL
+}

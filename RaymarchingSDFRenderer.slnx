@@ -1,4 +1,9 @@
 ﻿<Solution>
+  <Project Path="SDF.Editor.csproj" />
+  <Project Path="SDF.Runtime.csproj" />
   <Project Path="Assembly-CSharp-Editor.csproj" />
+  <Project Path="SDF.PlayModeTests.csproj" />
+  <Project Path="SDF.EditModeTests.csproj" />
   <Project Path="Assembly-CSharp.csproj" />
+  <Project Path="SDF.Generated.csproj" />
 </Solution>

@@ -1,0 +1,8 @@
+{
+  "name": "SDF.EditModeTests",
+  "rootNamespace": "SdfRenderer.Tests",
+  "references": ["SDF.Runtime", "SDF.Editor"],
+  "optionalUnityReferences": ["TestAssemblies"],
+  "includePlatforms": ["Editor"],
+  "autoReferenced": false
+}

@@ -1,0 +1,7 @@
+{
+  "name": "SDF.PlayModeTests",
+  "rootNamespace": "SdfRenderer.Tests",
+  "references": ["SDF.Runtime"],
+  "optionalUnityReferences": ["TestAssemblies"],
+  "autoReferenced": false
+}

@@ -1,0 +1,6 @@
+{
+  "name": "SDF.Generated",
+  "rootNamespace": "SdfRenderer.Generated",
+  "references": [],
+  "autoReferenced": true
+}

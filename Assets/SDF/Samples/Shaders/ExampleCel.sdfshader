@@ -1,0 +1,15 @@
+SDFShader "Examples/Cel"
+{
+    Properties
+    {
+        _Custom0 ("Tint and Bands", Vector) = (0.25, 0.8, 0.35, 4)
+    }
+    HLSLPROGRAM
+    float3 SDFSurface(SDFSurfaceContext context, SDFMaterialGpu material)
+    {
+        float bands = max(material.Custom0.w, 2.0);
+        float lighting = floor(saturate(dot(context.normalWS, context.lightDirectionWS)) * bands) / (bands - 1.0);
+        return material.Custom0.rgb * (context.ambientColor + context.lightColor * lighting);
+    }
+    ENDHLSL
+}

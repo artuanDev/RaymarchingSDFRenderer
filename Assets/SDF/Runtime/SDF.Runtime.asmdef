@@ -1,0 +1,10 @@
+{
+  "name": "SDF.Runtime",
+  "rootNamespace": "SdfRenderer",
+  "references": [
+    "SDF.Generated",
+    "Unity.RenderPipelines.Core.Runtime",
+    "Unity.RenderPipelines.Universal.Runtime"
+  ],
+  "autoReferenced": true
+}
