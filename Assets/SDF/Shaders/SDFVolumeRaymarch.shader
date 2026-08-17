@@ -3,20 +3,9 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
     SubShader
     {
         Tags { "RenderPipeline"="UniversalPipeline" "Queue"="Geometry+10" "RenderType"="Opaque" }
-        Pass
-        {
-            Name "SDFRaymarch"
-            Tags { "LightMode"="UniversalForward" }
-            Cull Back
-            ZWrite On
-            ZTest LEqual
-            Blend Off
-
-            HLSLPROGRAM
-            #pragma target 4.5
-            #pragma vertex Vert
-            #pragma fragment Frag
+        HLSLINCLUDE
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+            #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
 
             struct SDFModelGpu
             {
@@ -75,31 +64,50 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
             float _SDFSurfaceEpsilon;
             float _SDFNormalEpsilon;
             float _SDFPixelTolerance;
+            int _SDFPassMode;
+            int _SDFPreviewMode;
+            int _SDFModelCount;
+            int _SDFShadowCascadeCount;
+            int _SDFReceiveUrpShadows;
+            int _SDFSelfShadows;
+            int _SDFShadowMaxSteps;
+            float _SDFShadowMaxDistance;
+            float _SDFShadowStepSafety;
+            float _SDFShadowBias;
+            float _SDFShadowStrength;
+            int _SDFUseUrpScreenSpaceAO;
+            int _SDFAmbientOcclusionEnabled;
+            float _SDFAmbientOcclusionStrength;
             float3 _SDFAmbientColor;
             float3 _SDFLightDirection;
             float3 _SDFLightColor;
-            TEXTURE2D(_SDFTexture0);  SAMPLER(sampler_SDFTexture0);
-            TEXTURE2D(_SDFTexture1);  SAMPLER(sampler_SDFTexture1);
-            TEXTURE2D(_SDFTexture2);  SAMPLER(sampler_SDFTexture2);
-            TEXTURE2D(_SDFTexture3);  SAMPLER(sampler_SDFTexture3);
-            TEXTURE2D(_SDFTexture4);  SAMPLER(sampler_SDFTexture4);
-            TEXTURE2D(_SDFTexture5);  SAMPLER(sampler_SDFTexture5);
-            TEXTURE2D(_SDFTexture6);  SAMPLER(sampler_SDFTexture6);
-            TEXTURE2D(_SDFTexture7);  SAMPLER(sampler_SDFTexture7);
-            TEXTURE2D(_SDFTexture8);  SAMPLER(sampler_SDFTexture8);
-            TEXTURE2D(_SDFTexture9);  SAMPLER(sampler_SDFTexture9);
-            TEXTURE2D(_SDFTexture10); SAMPLER(sampler_SDFTexture10);
-            TEXTURE2D(_SDFTexture11); SAMPLER(sampler_SDFTexture11);
-            TEXTURE2D(_SDFTexture12); SAMPLER(sampler_SDFTexture12);
-            TEXTURE2D(_SDFTexture13); SAMPLER(sampler_SDFTexture13);
-            TEXTURE2D(_SDFTexture14); SAMPLER(sampler_SDFTexture14);
-            TEXTURE2D(_SDFTexture15); SAMPLER(sampler_SDFTexture15);
+            // D3D11 exposes only sixteen pixel-shader sampler registers and the maximal
+            // URP Forward+ lighting variant already uses all of them. SDF slots therefore
+            // reuse URP's global linear-clamp sampler and wrap their UVs explicitly. The
+            // sixteen texture resources remain independent and cost no extra samplers.
+            TEXTURE2D(_SDFTexture0);
+            TEXTURE2D(_SDFTexture1);
+            TEXTURE2D(_SDFTexture2);
+            TEXTURE2D(_SDFTexture3);
+            TEXTURE2D(_SDFTexture4);
+            TEXTURE2D(_SDFTexture5);
+            TEXTURE2D(_SDFTexture6);
+            TEXTURE2D(_SDFTexture7);
+            TEXTURE2D(_SDFTexture8);
+            TEXTURE2D(_SDFTexture9);
+            TEXTURE2D(_SDFTexture10);
+            TEXTURE2D(_SDFTexture11);
+            TEXTURE2D(_SDFTexture12);
+            TEXTURE2D(_SDFTexture13);
+            TEXTURE2D(_SDFTexture14);
+            TEXTURE2D(_SDFTexture15);
 
             struct Varyings
             {
                 float4 positionCS : SV_POSITION;
                 float3 positionWS : TEXCOORD0;
                 nointerpolation uint modelIndex : TEXCOORD1;
+                nointerpolation uint shadowCascade : TEXCOORD2;
             };
 
             struct FragmentOutput
@@ -122,6 +130,8 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
                 float3 lightDirectionWS;
                 float3 lightColor;
                 float3 ambientColor;
+                float ambientOcclusion;
+                float selfShadow;
             };
 
             float4 SampleSDFTexture(uint index, float2 uv);
@@ -129,22 +139,23 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
 
             float4 SampleSDFTexture(uint index, float2 uv)
             {
-                if(index==1u) return SAMPLE_TEXTURE2D(_SDFTexture1,sampler_SDFTexture1,uv);
-                if(index==2u) return SAMPLE_TEXTURE2D(_SDFTexture2,sampler_SDFTexture2,uv);
-                if(index==3u) return SAMPLE_TEXTURE2D(_SDFTexture3,sampler_SDFTexture3,uv);
-                if(index==4u) return SAMPLE_TEXTURE2D(_SDFTexture4,sampler_SDFTexture4,uv);
-                if(index==5u) return SAMPLE_TEXTURE2D(_SDFTexture5,sampler_SDFTexture5,uv);
-                if(index==6u) return SAMPLE_TEXTURE2D(_SDFTexture6,sampler_SDFTexture6,uv);
-                if(index==7u) return SAMPLE_TEXTURE2D(_SDFTexture7,sampler_SDFTexture7,uv);
-                if(index==8u) return SAMPLE_TEXTURE2D(_SDFTexture8,sampler_SDFTexture8,uv);
-                if(index==9u) return SAMPLE_TEXTURE2D(_SDFTexture9,sampler_SDFTexture9,uv);
-                if(index==10u) return SAMPLE_TEXTURE2D(_SDFTexture10,sampler_SDFTexture10,uv);
-                if(index==11u) return SAMPLE_TEXTURE2D(_SDFTexture11,sampler_SDFTexture11,uv);
-                if(index==12u) return SAMPLE_TEXTURE2D(_SDFTexture12,sampler_SDFTexture12,uv);
-                if(index==13u) return SAMPLE_TEXTURE2D(_SDFTexture13,sampler_SDFTexture13,uv);
-                if(index==14u) return SAMPLE_TEXTURE2D(_SDFTexture14,sampler_SDFTexture14,uv);
-                if(index==15u) return SAMPLE_TEXTURE2D(_SDFTexture15,sampler_SDFTexture15,uv);
-                return SAMPLE_TEXTURE2D(_SDFTexture0,sampler_SDFTexture0,uv);
+                uv=frac(uv);
+                if(index==1u) return SAMPLE_TEXTURE2D(_SDFTexture1,sampler_LinearClamp,uv);
+                if(index==2u) return SAMPLE_TEXTURE2D(_SDFTexture2,sampler_LinearClamp,uv);
+                if(index==3u) return SAMPLE_TEXTURE2D(_SDFTexture3,sampler_LinearClamp,uv);
+                if(index==4u) return SAMPLE_TEXTURE2D(_SDFTexture4,sampler_LinearClamp,uv);
+                if(index==5u) return SAMPLE_TEXTURE2D(_SDFTexture5,sampler_LinearClamp,uv);
+                if(index==6u) return SAMPLE_TEXTURE2D(_SDFTexture6,sampler_LinearClamp,uv);
+                if(index==7u) return SAMPLE_TEXTURE2D(_SDFTexture7,sampler_LinearClamp,uv);
+                if(index==8u) return SAMPLE_TEXTURE2D(_SDFTexture8,sampler_LinearClamp,uv);
+                if(index==9u) return SAMPLE_TEXTURE2D(_SDFTexture9,sampler_LinearClamp,uv);
+                if(index==10u) return SAMPLE_TEXTURE2D(_SDFTexture10,sampler_LinearClamp,uv);
+                if(index==11u) return SAMPLE_TEXTURE2D(_SDFTexture11,sampler_LinearClamp,uv);
+                if(index==12u) return SAMPLE_TEXTURE2D(_SDFTexture12,sampler_LinearClamp,uv);
+                if(index==13u) return SAMPLE_TEXTURE2D(_SDFTexture13,sampler_LinearClamp,uv);
+                if(index==14u) return SAMPLE_TEXTURE2D(_SDFTexture14,sampler_LinearClamp,uv);
+                if(index==15u) return SAMPLE_TEXTURE2D(_SDFTexture15,sampler_LinearClamp,uv);
+                return SAMPLE_TEXTURE2D(_SDFTexture0,sampler_LinearClamp,uv);
             }
 
             static const uint kCubeIndices[36] =
@@ -161,18 +172,21 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
 
             Varyings Vert(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
             {
-                SDFModelGpu model = _SDFModels[instanceId];
+                uint modelIndex=_SDFPassMode==2?instanceId%(uint)max(_SDFModelCount,1):instanceId;
+                uint shadowCascade=_SDFPassMode==2?instanceId/(uint)max(_SDFModelCount,1):0u;
+                SDFModelGpu model = _SDFModels[modelIndex];
                 if (_SDFSceneView > 0.5 && model.BoundsMaxAndShapeCount.w < 0.0)
                 {
                     Varyings hidden;
                     hidden.positionWS = 0.0.xxx;
                     hidden.positionCS = float4(2.0, 2.0, 2.0, 1.0);
-                    hidden.modelIndex = instanceId;
+                    hidden.modelIndex = modelIndex;
+                    hidden.shadowCascade = shadowCascade;
                     return hidden;
                 }
                 float3 outside = max(max(model.BoundsMinAndShapeStart.xyz - _SDFCameraPosition,
                                          _SDFCameraPosition - model.BoundsMaxAndShapeCount.xyz), 0.0.xxx);
-                bool cameraInside = dot(outside, outside) < _SDFCameraNear * _SDFCameraNear * 4.0;
+                bool cameraInside = _SDFPassMode!=2&&dot(outside, outside) < _SDFCameraNear * _SDFCameraNear * 4.0;
                 uint windingId = vertexId;
                 uint triangleVertex = vertexId % 3u;
                 if (cameraInside && triangleVertex == 1u) windingId = vertexId + 1u;
@@ -180,8 +194,19 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
                 float3 corner = CubeCorner(kCubeIndices[windingId]);
                 Varyings output;
                 output.positionWS = lerp(model.BoundsMinAndShapeStart.xyz, model.BoundsMaxAndShapeCount.xyz, corner);
-                output.positionCS = mul(_SDFViewProjection, float4(output.positionWS, 1.0));
-                output.modelIndex = instanceId;
+                if(_SDFPassMode==2)
+                {
+                    float4 shadowPosition=mul(_MainLightWorldToShadow[min(shadowCascade,3u)],float4(output.positionWS,1.0));
+                    float2 clipXY=shadowPosition.xy*2.0-shadowPosition.ww;
+                    #if UNITY_UV_STARTS_AT_TOP
+                        clipXY.y=-clipXY.y;
+                    #endif
+                    output.positionCS=float4(clipXY,shadowPosition.z,shadowPosition.w);
+                }
+                else
+                    output.positionCS = mul(_SDFViewProjection, float4(output.positionWS, 1.0));
+                output.modelIndex = modelIndex;
+                output.shadowCascade = shadowCascade;
                 return output;
             }
 
@@ -435,6 +460,18 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
                 return squared>=threshold*threshold;
             }
 
+            bool CanSkipSubtraction(float3 p,SDFShapeGpu shape,float current,float smoothing)
+            {
+                float boundsScale=shape.MaterialModifierCountDistanceScaleBoundsScale.w;
+                if(boundsScale<=0.0) return false;
+                float squared=SquaredDistanceToAabb(p,shape.BoundsMin.xyz,shape.BoundsMax.xyz)*boundsScale*boundsScale;
+                // A zero AABB distance means the point is inside the conservative
+                // operand volume, where a lower distance bound cannot reject it.
+                if(squared<=0.0) return false;
+                float threshold=max(smoothing-current,0.0);
+                return squared>=threshold*threshold;
+            }
+
             float EvaluateModel(float3 p,uint modelIndex)
             {
                 SDFModelGpu model=_SDFModels[modelIndex];
@@ -446,6 +483,7 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
                     uint operation=(uint)(shape.TypeOperationSmoothModifierStart.y+0.5);
                     float k=shape.TypeOperationSmoothModifierStart.z;
                     if((operation==0u||operation==3u)&&CanSkipUnion(p,shape,current,operation==3u?k:0.0)) continue;
+                    if((operation==1u||operation==4u)&&CanSkipSubtraction(p,shape,current,operation==4u?k:0.0)) continue;
                     float operand=EvaluateShape(p,shape);
                     if(operation==0u) current=min(current,operand);
                     else if(operation==1u) current=max(current,-operand);
@@ -465,24 +503,133 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
                 return normalize(e1*EvaluateModel(p+e1*epsilon,modelIndex)+e2*EvaluateModel(p+e2*epsilon,modelIndex)+e3*EvaluateModel(p+e3*epsilon,modelIndex)+e4*EvaluateModel(p+e4*epsilon,modelIndex));
             }
 
+            float EvaluateSdfAmbientOcclusion(float2 screenUV)
+            {
+                if(_SDFAmbientOcclusionEnabled==0||_SDFAmbientOcclusionStrength<=0.0) return 1.0;
+                if(_SDFUseUrpScreenSpaceAO==0) return 1.0;
+                AmbientOcclusionFactor ao=GetScreenSpaceAmbientOcclusion(screenUV);
+                return lerp(1.0,ao.indirectAmbientOcclusion,saturate(_SDFAmbientOcclusionStrength));
+            }
+
+            float EvaluateSdfSelfShadow(float3 p)
+            {
+                if(_SDFSelfShadows==0||_SDFShadowStrength<=0.0) return 1.0;
+                Light mainLight=GetMainLight(TransformWorldToShadowCoord(p));
+                return lerp(1.0,mainLight.shadowAttenuation,saturate(_SDFShadowStrength));
+            }
+
+            half4 ShadeUrpLit(SDFMaterialGpu material,float3 baseColor,SDFSurfaceContext context)
+            {
+                SurfaceData surfaceData=(SurfaceData)0;
+                surfaceData.albedo=baseColor;
+                surfaceData.specular=half3(0.0,0.0,0.0);
+                surfaceData.metallic=saturate(material.ModelMetallicSmoothness.y);
+                surfaceData.smoothness=saturate(material.ModelMetallicSmoothness.z);
+                surfaceData.normalTS=half3(0.0,0.0,1.0);
+                surfaceData.emission=material.EmissionAndCelBands.rgb;
+                surfaceData.occlusion=saturate(material.ModelMetallicSmoothness.w);
+                surfaceData.alpha=material.BaseColor.a;
+                surfaceData.clearCoatMask=0.0;
+                surfaceData.clearCoatSmoothness=0.0;
+
+                InputData inputData=(InputData)0;
+                inputData.positionWS=context.positionWS;
+                inputData.positionCS=mul(_SDFViewProjection,float4(context.positionWS,1.0));
+                inputData.normalWS=NormalizeNormalPerPixel(context.normalWS);
+                inputData.viewDirectionWS=SafeNormalize(context.viewDirectionWS);
+                inputData.shadowCoord=TransformWorldToShadowCoord(context.positionWS);
+                inputData.fogCoord=0.0;
+                inputData.vertexLighting=half3(0.0,0.0,0.0);
+                inputData.bakedGI=SampleSH(inputData.normalWS);
+                inputData.normalizedScreenSpaceUV=context.screenUV;
+                inputData.shadowMask=half4(1.0,1.0,1.0,1.0);
+
+                BRDFData brdfData;
+                InitializeBRDFData(surfaceData,brdfData);
+                BRDFData clearCoatData=CreateClearCoatBRDFData(surfaceData,brdfData);
+                if(_SDFPreviewMode!=0)
+                {
+                    Light previewLight=(Light)0;
+                    previewLight.direction=SafeNormalize(context.lightDirectionWS);
+                    previewLight.color=context.lightColor;
+                    previewLight.distanceAttenuation=1.0;
+                    previewLight.shadowAttenuation=1.0;
+                    half3 previewColor=brdfData.diffuse*context.ambientColor*surfaceData.occlusion;
+                    previewColor+=LightingPhysicallyBased(brdfData,clearCoatData,previewLight,inputData.normalWS,
+                        inputData.viewDirectionWS,surfaceData.clearCoatMask,false);
+                    previewColor+=surfaceData.emission;
+                    return half4(previewColor,surfaceData.alpha);
+                }
+                half4 shadowMask=CalculateShadowMask(inputData);
+                AmbientOcclusionFactor aoFactor;
+                if(_SDFUseUrpScreenSpaceAO!=0)
+                {
+                    float aoStrength=_SDFAmbientOcclusionEnabled!=0?saturate(_SDFAmbientOcclusionStrength):0.0;
+                    AmbientOcclusionFactor screenSpaceAO=GetScreenSpaceAmbientOcclusion(inputData.normalizedScreenSpaceUV);
+                    aoFactor.directAmbientOcclusion=lerp(1.0,screenSpaceAO.directAmbientOcclusion,aoStrength);
+                    // Material occlusion is independent of the renderer's SSAO strength.
+                    // This matches URP Lit at strength one while retaining the material's
+                    // physically neutral occlusion value when screen-space AO is disabled.
+                    aoFactor.indirectAmbientOcclusion=min(surfaceData.occlusion,
+                        lerp(1.0,screenSpaceAO.indirectAmbientOcclusion,aoStrength));
+                }
+                else
+                {
+                    aoFactor.directAmbientOcclusion=1.0;
+                    aoFactor.indirectAmbientOcclusion=surfaceData.occlusion;
+                }
+
+                Light mainLight=GetMainLight(inputData,shadowMask,aoFactor);
+                if(_SDFReceiveUrpShadows==0) mainLight.shadowAttenuation=1.0;
+                else mainLight.shadowAttenuation=lerp(1.0,mainLight.shadowAttenuation,saturate(_SDFShadowStrength));
+                MixRealtimeAndBakedGI(mainLight,inputData.normalWS,inputData.bakedGI);
+
+                LightingData lightingData=CreateLightingData(inputData,surfaceData);
+                lightingData.giColor=GlobalIllumination(brdfData,clearCoatData,surfaceData.clearCoatMask,
+                    inputData.bakedGI,aoFactor.indirectAmbientOcclusion,inputData.positionWS,inputData.normalWS,
+                    inputData.viewDirectionWS,inputData.normalizedScreenSpaceUV);
+                lightingData.mainLightColor=LightingPhysicallyBased(brdfData,clearCoatData,mainLight,
+                    inputData.normalWS,inputData.viewDirectionWS,surfaceData.clearCoatMask,false);
+
+                #if defined(_ADDITIONAL_LIGHTS)
+                    uint pixelLightCount=GetAdditionalLightsCount();
+                    #if USE_CLUSTER_LIGHT_LOOP
+                        [loop] for(uint lightIndex=0u;lightIndex<min(URP_FP_DIRECTIONAL_LIGHTS_COUNT,MAX_VISIBLE_LIGHTS);++lightIndex)
+                        {
+                            CLUSTER_LIGHT_LOOP_SUBTRACTIVE_LIGHT_CHECK
+                            Light light=GetAdditionalLight(lightIndex,inputData,shadowMask,aoFactor);
+                            if(_SDFReceiveUrpShadows==0) light.shadowAttenuation=1.0;
+                            lightingData.additionalLightsColor+=LightingPhysicallyBased(brdfData,clearCoatData,light,
+                                inputData.normalWS,inputData.viewDirectionWS,surfaceData.clearCoatMask,false);
+                        }
+                    #endif
+                    LIGHT_LOOP_BEGIN(pixelLightCount)
+                        Light light=GetAdditionalLight(lightIndex,inputData,shadowMask,aoFactor);
+                        if(_SDFReceiveUrpShadows==0) light.shadowAttenuation=1.0;
+                        lightingData.additionalLightsColor+=LightingPhysicallyBased(brdfData,clearCoatData,light,
+                            inputData.normalWS,inputData.viewDirectionWS,surfaceData.clearCoatMask,false);
+                    LIGHT_LOOP_END
+                #endif
+
+                return CalculateFinalColor(lightingData,surfaceData.alpha);
+            }
+
             float3 ShadeMaterial(uint materialIndex,SDFSurfaceContext context)
             {
                 SDFMaterialGpu material=_SDFMaterials[materialIndex];
                 uint model=(uint)(material.ModelMetallicSmoothness.x+0.5);
-                float3 baseColor=material.BaseColor.rgb*SampleSDFTexture((uint)(material.CustomShaderTextureIndices.y+0.5),context.positionOS.xz).rgb;
+                uint textureIndex=(uint)(material.CustomShaderTextureIndices.y+0.5);
+                float3 baseColor=material.BaseColor.rgb;
+                if(textureIndex>0u) baseColor*=SampleSDFTexture(textureIndex,context.positionOS.xz).rgb;
                 if(model==1u) return baseColor+material.EmissionAndCelBands.rgb;
                 if(model==4u) return SDFShadeCustom((uint)(material.CustomShaderTextureIndices.x+0.5),context,material)+material.EmissionAndCelBands.rgb;
-                float ndotl=saturate(dot(context.normalWS,context.lightDirectionWS));
+                if(model==3u) return ShadeUrpLit(material,baseColor,context).rgb;
+                float directVisibility=context.selfShadow;
+                float ndotl=saturate(dot(context.normalWS,context.lightDirectionWS))*directVisibility;
                 if(model==2u) { float bands=max(material.EmissionAndCelBands.w,1.0); ndotl=floor(ndotl*bands+1e-4)/max(bands-1.0,1.0); }
                 float3 halfDirection=normalize(context.lightDirectionWS+context.viewDirectionWS);
-                float specular=ndotl>0.0?pow(saturate(dot(context.normalWS,halfDirection)),material.SpecularAndPower.w):0.0;
-                float3 diffuse=baseColor*(context.ambientColor+context.lightColor*ndotl);
-                if(model==3u)
-                {
-                    float metallic=material.ModelMetallicSmoothness.y, smoothness=material.ModelMetallicSmoothness.z;
-                    float3 f0=lerp(0.04.xxx,baseColor,metallic);
-                    return diffuse*(1.0-metallic)+f0*context.lightColor*pow(saturate(dot(context.normalWS,halfDirection)),lerp(4.0,256.0,smoothness))+material.EmissionAndCelBands.rgb;
-                }
+                float specular=ndotl>0.0?pow(saturate(dot(context.normalWS,halfDirection)),material.SpecularAndPower.w)*directVisibility:0.0;
+                float3 diffuse=baseColor*(context.ambientColor*context.ambientOcclusion+context.lightColor*ndotl);
                 return diffuse+material.SpecularAndPower.rgb*context.lightColor*specular+material.EmissionAndCelBands.rgb;
             }
 
@@ -497,23 +644,52 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
                 context.uv=context.positionOS.xz; context.screenUV=screenUV; context.screenPosition=float4(screenUV,screenUV*_ScaledScreenParams.xy);
                 context.cameraPositionWS=_SDFCameraPosition; context.cameraForwardWS=_SDFCameraForward;
                 context.lightDirectionWS=_SDFLightDirection; context.lightColor=_SDFLightColor; context.ambientColor=_SDFAmbientColor;
+                context.ambientOcclusion=EvaluateSdfAmbientOcclusion(screenUV);
+                context.selfShadow=EvaluateSdfSelfShadow(p);
                 float3 currentColor=ShadeMaterial((uint)(first.MaterialModifierCountDistanceScaleBoundsScale.x+0.5),context);
                 [loop] for(uint i=1u;i<count;++i)
                 {
                     SDFShapeGpu shape=_SDFShapes[start+i];
-                    float operandDistance=EvaluateShape(p,shape);
-                    context.positionOS=ToLocal(p,shape); context.uv=context.positionOS.xz;
-                    float3 operandColor=ShadeMaterial((uint)(shape.MaterialModifierCountDistanceScaleBoundsScale.x+0.5),context);
                     uint operation=(uint)(shape.TypeOperationSmoothModifierStart.y+0.5); float k=shape.TypeOperationSmoothModifierStart.z;
-                    if(operation==0u) { if(operandDistance<currentDistance){currentDistance=operandDistance;currentColor=operandColor;} }
-                    else if(operation==1u) { float cut=-operandDistance; if(cut>currentDistance){currentDistance=cut;currentColor=operandColor;} }
-                    else if(operation==2u) { if(operandDistance>currentDistance){currentDistance=operandDistance;currentColor=operandColor;} }
-                    else if(operation==3u&&k>1e-7) { float h=saturate(0.5+0.5*(operandDistance-currentDistance)/k); currentDistance=lerp(operandDistance,currentDistance,h)-k*h*(1-h); currentColor=lerp(operandColor,currentColor,h); }
-                    else if(operation==4u&&k>1e-7) { float h=saturate(0.5-0.5*(currentDistance+operandDistance)/k); currentDistance=lerp(currentDistance,-operandDistance,h)+k*h*(1-h); currentColor=lerp(currentColor,operandColor,h); }
-                    else if(operation==5u&&k>1e-7) { float h=saturate(0.5-0.5*(operandDistance-currentDistance)/k); currentDistance=lerp(operandDistance,currentDistance,h)+k*h*(1-h); currentColor=lerp(operandColor,currentColor,h); }
-                    else if(operation==3u) { if(operandDistance<currentDistance){currentDistance=operandDistance;currentColor=operandColor;} }
-                    else if(operation==4u) { float cut=-operandDistance; if(cut>currentDistance){currentDistance=cut;currentColor=operandColor;} }
-                    else if(operation==5u) { if(operandDistance>currentDistance){currentDistance=operandDistance;currentColor=operandColor;} }
+                    if((operation==0u||operation==3u)&&CanSkipUnion(p,shape,currentDistance,operation==3u?k:0.0)) continue;
+                    if((operation==1u||operation==4u)&&CanSkipSubtraction(p,shape,currentDistance,operation==4u?k:0.0)) continue;
+                    float operandDistance=EvaluateShape(p,shape);
+                    bool shadeOperand=false;
+                    float blendWeight=0.0;
+                    if(operation==0u) { if(operandDistance<currentDistance){currentDistance=operandDistance;shadeOperand=true;} }
+                    else if(operation==1u) { float cut=-operandDistance; if(cut>currentDistance){currentDistance=cut;shadeOperand=true;} }
+                    else if(operation==2u) { if(operandDistance>currentDistance){currentDistance=operandDistance;shadeOperand=true;} }
+                    else if(operation==3u&&k>1e-7)
+                    {
+                        float h=saturate(0.5+0.5*(operandDistance-currentDistance)/k);
+                        currentDistance=lerp(operandDistance,currentDistance,h)-k*h*(1-h);
+                        shadeOperand=h<1.0; blendWeight=h;
+                    }
+                    else if(operation==4u&&k>1e-7)
+                    {
+                        float h=saturate(0.5-0.5*(currentDistance+operandDistance)/k);
+                        currentDistance=lerp(currentDistance,-operandDistance,h)+k*h*(1-h);
+                        shadeOperand=h>0.0; blendWeight=1.0-h;
+                    }
+                    else if(operation==5u&&k>1e-7)
+                    {
+                        float h=saturate(0.5-0.5*(operandDistance-currentDistance)/k);
+                        currentDistance=lerp(operandDistance,currentDistance,h)+k*h*(1-h);
+                        shadeOperand=h<1.0; blendWeight=h;
+                    }
+                    else if(operation==3u) { if(operandDistance<currentDistance){currentDistance=operandDistance;shadeOperand=true;} }
+                    else if(operation==4u) { float cut=-operandDistance; if(cut>currentDistance){currentDistance=cut;shadeOperand=true;} }
+                    else if(operation==5u) { if(operandDistance>currentDistance){currentDistance=operandDistance;shadeOperand=true;} }
+
+                    if(shadeOperand)
+                    {
+                        context.positionOS=ToLocal(p,shape); context.uv=context.positionOS.xz;
+                        float3 operandColor=ShadeMaterial((uint)(shape.MaterialModifierCountDistanceScaleBoundsScale.x+0.5),context);
+                        if(operation==3u||operation==4u||operation==5u)
+                            currentColor=lerp(operandColor,currentColor,blendWeight);
+                        else
+                            currentColor=operandColor;
+                    }
                 }
                 return currentColor;
             }
@@ -528,7 +704,52 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
                 return depth;
             }
 
-            FragmentOutput Frag(Varyings input)
+            struct ShadowFragmentOutput
+            {
+                float depth : SV_Depth;
+            };
+
+            ShadowFragmentOutput FragShadow(Varyings input)
+            {
+                SDFModelGpu model=_SDFModels[input.modelIndex];
+                float2 atlasUV=input.positionCS.xy*_MainLightShadowmapSize.xy;
+                float2 tileScale=1.0.xx;
+                if(_SDFShadowCascadeCount==2) tileScale=float2(0.5,1.0);
+                else if(_SDFShadowCascadeCount>1) tileScale=0.5.xx;
+                float2 tileOffset=float2(input.shadowCascade&1u,input.shadowCascade>>1u)*tileScale;
+                if(any(atlasUV<tileOffset)||any(atlasUV>=tileOffset+tileScale)) discard;
+                float3 rayDirection=-normalize(_SDFLightDirection);
+                float3 rayOrigin=input.positionWS-rayDirection*_SDFSurfaceEpsilon*2.0;
+                float2 boxHit=IntersectAabb(rayOrigin,rayDirection,model.BoundsMinAndShapeStart.xyz,model.BoundsMaxAndShapeCount.xyz);
+                float rayDistance=max(boxHit.x,0.0);
+                float rayEnd=min(boxHit.y,rayDistance+_SDFShadowMaxDistance);
+                if(rayEnd<=rayDistance) discard;
+                bool hit=false;
+                [loop] for(int stepIndex=0;stepIndex<_SDFShadowMaxSteps;++stepIndex)
+                {
+                    float sampleDistance=EvaluateModel(rayOrigin+rayDirection*rayDistance,input.modelIndex);
+                    if(abs(sampleDistance)<=_SDFSurfaceEpsilon){hit=true;break;}
+                    rayDistance+=max(abs(sampleDistance)*_SDFShadowStepSafety,_SDFSurfaceEpsilon*0.5);
+                    if(rayDistance>rayEnd) break;
+                }
+                if(!hit) discard;
+                float3 hitPosition=rayOrigin+rayDirection*rayDistance-rayDirection*_SDFShadowBias;
+                float4 shadowPosition=mul(_MainLightWorldToShadow[min(input.shadowCascade,3u)],float4(hitPosition,1.0));
+                ShadowFragmentOutput output;
+                output.depth=shadowPosition.z/shadowPosition.w;
+                return output;
+            }
+
+            struct CameraTraceOutput
+            {
+                float3 hitPosition;
+                float3 normal;
+                float3 viewDirection;
+                float2 screenUV;
+                float depth;
+            };
+
+            CameraTraceOutput TraceCamera(Varyings input)
             {
                 SDFModelGpu model=_SDFModels[input.modelIndex];
                 float3 ro,rd;
@@ -551,12 +772,98 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
                 float3 hitPosition=ro+rd*rayDistance;
                 float pixelSize=(_SDFOrthographic>0.5)?_SDFPixelWorldScale:max(rayDistance,_SDFCameraNear)*_SDFPixelWorldScale;
                 float3 normal=EvaluateNormal(hitPosition,input.modelIndex,max(_SDFNormalEpsilon,pixelSize*_SDFPixelTolerance));
-                float2 screenUV=input.positionCS.xy/_ScaledScreenParams.xy;
-                FragmentOutput output;
-                output.color=float4(EvaluateSurface(hitPosition,input.modelIndex,normal,-rd,screenUV),1.0);
+                CameraTraceOutput output;
+                output.hitPosition=hitPosition;
+                output.normal=normal;
+                output.viewDirection=-rd;
+                output.screenUV=input.positionCS.xy/_ScaledScreenParams.xy;
                 output.depth=DeviceDepth(hitPosition);
                 return output;
             }
+
+            FragmentOutput FragColor(Varyings input)
+            {
+                CameraTraceOutput trace=TraceCamera(input);
+                FragmentOutput output;
+                output.color=float4(EvaluateSurface(trace.hitPosition,input.modelIndex,trace.normal,trace.viewDirection,trace.screenUV),1.0);
+                output.depth=trace.depth;
+                return output;
+            }
+
+            FragmentOutput FragDepthNormals(Varyings input)
+            {
+                CameraTraceOutput trace=TraceCamera(input);
+                FragmentOutput output;
+                #if defined(_GBUFFER_NORMALS_OCT)
+                    float2 octNormal=PackNormalOctQuadEncode(trace.normal);
+                    output.color=float4(PackFloat2To888(saturate(octNormal*0.5+0.5)),0.0);
+                #else
+                    output.color=float4(trace.normal,0.0);
+                #endif
+                output.depth=trace.depth;
+                return output;
+            }
+        ENDHLSL
+
+        Pass
+        {
+            Name "SDFRaymarch"
+            Tags { "LightMode"="UniversalForward" }
+            Cull Back
+            ZWrite On
+            ZTest LEqual
+            Blend Off
+
+            HLSLPROGRAM
+            #pragma target 4.5
+            // FXC's optimizer becomes super-linear when the complete dynamic SDF
+            // evaluator is combined with URP's PBR/reflection code. Keep this scoped
+            // to the D3D11 color program; other backends and the lean auxiliary passes
+            // still use their normal optimization pipeline.
+            #pragma skip_optimizations d3d11
+            #pragma vertex Vert
+            #pragma fragment FragColor
+            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE
+            #pragma multi_compile _ _ADDITIONAL_LIGHTS
+            #pragma multi_compile_fragment _ _ADDITIONAL_LIGHT_SHADOWS
+            #pragma multi_compile_fragment _ _REFLECTION_PROBE_BLENDING
+            #pragma multi_compile_fragment _ _REFLECTION_PROBE_BOX_PROJECTION
+            #pragma multi_compile_fragment _ _REFLECTION_PROBE_ATLAS
+            #pragma multi_compile_fragment _ _SHADOWS_SOFT _SHADOWS_SOFT_LOW _SHADOWS_SOFT_MEDIUM _SHADOWS_SOFT_HIGH
+            #pragma multi_compile_fragment _ _SCREEN_SPACE_OCCLUSION
+            #pragma multi_compile_fragment _ _LIGHT_COOKIES
+            #pragma multi_compile _ _CLUSTER_LIGHT_LOOP
+            ENDHLSL
+        }
+
+        Pass
+        {
+            Name "SDFDepthNormals"
+            Cull Back
+            ZWrite On
+            ZTest LEqual
+            Blend Off
+
+            HLSLPROGRAM
+            #pragma target 4.5
+            #pragma vertex Vert
+            #pragma fragment FragDepthNormals
+            #pragma multi_compile_fragment _ _GBUFFER_NORMALS_OCT
+            ENDHLSL
+        }
+
+        Pass
+        {
+            Name "SDFMainLightShadowCaster"
+            Cull Back
+            ZWrite On
+            ZTest LEqual
+            Blend Off
+
+            HLSLPROGRAM
+            #pragma target 4.5
+            #pragma vertex Vert
+            #pragma fragment FragShadow
             ENDHLSL
         }
     }

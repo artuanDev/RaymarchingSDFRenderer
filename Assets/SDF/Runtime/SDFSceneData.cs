@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using Unity.Burst;
 using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
 using Unity.Mathematics;
 using Unity.Profiling;
@@ -68,6 +69,7 @@ namespace SdfRenderer
         {
             public SDFShape Shape;
             public SDFOperation Operation;
+            public Bounds BaseLocalBounds;
             public Bounds LocalBounds;
             public SDFOperationType OperationType;
             public float Smoothness;
@@ -84,8 +86,12 @@ namespace SdfRenderer
 
         private struct ShapeTransformInput
         {
+            public Vector3 BaseLocalCenter;
+            public Vector3 BaseLocalExtents;
             public Vector3 LocalCenter;
             public Vector3 LocalExtents;
+            public Vector3 ClipCenter;
+            public Vector3 ClipExtents;
             public float Smoothness;
             public int CanUseBoundsDistance;
         }
@@ -187,6 +193,78 @@ namespace SdfRenderer
         }
 
         [BurstCompile]
+        private struct PackModifierBoundsJob : IJobParallelFor
+        {
+            [ReadOnly] public NativeArray<int> ModifiedShapeIndices;
+            [ReadOnly] public NativeArray<ModifierGpu> Modifiers;
+            [ReadOnly] public NativeArray<ShapeGpu> Shapes;
+            [NativeDisableParallelForRestriction] public NativeArray<ShapeTransformInput> Inputs;
+
+            public void Execute(int index)
+            {
+                int shapeIndex = ModifiedShapeIndices[index];
+                ShapeGpu shape = Shapes[shapeIndex];
+                ShapeTransformInput input = Inputs[shapeIndex];
+                float3 center = input.BaseLocalCenter;
+                float3 extents = input.BaseLocalExtents;
+                int modifierStart = (int)shape.TypeOperationSmoothModifierStart.w;
+                int modifierCount = (int)shape.MaterialModifierCountDistanceScaleBoundsScale.y;
+                bool canUseBoundsDistance = true;
+                bool infiniteRepeat = false;
+
+                for (int modifierIndex = modifierStart; modifierIndex < modifierStart + modifierCount; ++modifierIndex)
+                {
+                    ModifierGpu modifier = Modifiers[modifierIndex];
+                    int type = (int)modifier.TypeAxesAmount.x;
+                    int axes = (int)modifier.TypeAxesAmount.y;
+                    float amount = math.abs(modifier.TypeAxesAmount.z);
+                    float3 axisMask = new float3((axes & 1) != 0 ? 1f : 0f, (axes & 2) != 0 ? 1f : 0f, (axes & 4) != 0 ? 1f : 0f);
+                    canUseBoundsDistance &= type != 5 && type != 6 && type != 7 && type != 8;
+                    infiniteRepeat |= type == 5;
+
+                    if (type == 0 || type == 1)
+                        extents += amount;
+                    else if (type == 2)
+                        extents += math.abs(new float3(modifier.Vector.x, modifier.Vector.y, modifier.Vector.z)) * axisMask;
+                    else if (type == 3)
+                    {
+                        float3 offset = math.abs(new float3(modifier.Vector.x, modifier.Vector.y, modifier.Vector.z)) * axisMask;
+                        if ((axes & 1) != 0) { extents.x += math.abs(center.x) + offset.x; center.x = 0f; }
+                        if ((axes & 2) != 0) { extents.y += math.abs(center.y) + offset.y; center.y = 0f; }
+                        if ((axes & 4) != 0) { extents.z += math.abs(center.z) + offset.z; center.z = 0f; }
+                    }
+                    else if (type == 4)
+                        extents += math.abs(new float3(modifier.Vector.x, modifier.Vector.y, modifier.Vector.z)) *
+                            new float3(modifier.Count.x, modifier.Count.y, modifier.Count.z) * axisMask;
+                    else if (type == 6 || type == 7)
+                    {
+                        float radius = math.length(center) + math.length(extents);
+                        center = float3.zero;
+                        extents = radius;
+                    }
+                    else if (type == 8)
+                    {
+                        float radius = amount + math.abs(center.x) + extents.x;
+                        center = new float3(0f, center.y, 0f);
+                        extents = new float3(radius, extents.y, radius);
+                    }
+                    else if (type == 9)
+                        extents += amount * axisMask;
+                }
+
+                if (infiniteRepeat)
+                {
+                    center = input.ClipCenter;
+                    extents = input.ClipExtents;
+                }
+                input.LocalCenter = center;
+                input.LocalExtents = extents;
+                input.CanUseBoundsDistance = canUseBoundsDistance ? 1 : 0;
+                Inputs[shapeIndex] = input;
+            }
+        }
+
+        [BurstCompile]
         private struct PackModelsJob : IJobParallelFor
         {
             [ReadOnly] public NativeArray<ModelTransformInput> Inputs;
@@ -257,6 +335,8 @@ namespace SdfRenderer
         private NativeArray<ModelTransformInput> m_ModelTransformInputs;
         private NativeArray<ShapeGpu> m_DynamicShapes;
         private NativeArray<ModelGpu> m_DynamicModels;
+        private NativeArray<ModifierGpu> m_DynamicModifiers;
+        private NativeArray<int> m_DynamicModifiedShapeIndices;
 
         private const int DynamicBufferCount = 3;
         private readonly GraphicsBuffer[] m_ModelBuffers = new GraphicsBuffer[DynamicBufferCount];
@@ -303,20 +383,21 @@ namespace SdfRenderer
                     RefreshMaterials();
                 bool modifiersChanged = (dirty & SDFDirtyFlags.Modifiers) != 0;
                 bool operationsChanged = (dirty & SDFDirtyFlags.Operations) != 0;
-                if (modifiersChanged)
-                {
-                    using (ModifierMarker.Auto())
-                        RefreshModifiers();
-                }
+                JobHandle modifierBoundsHandle = default;
                 if (operationsChanged)
                 {
                     using (OperationMarker.Auto())
                         RefreshOperations();
                 }
+                if (modifiersChanged)
+                {
+                    using (ModifierMarker.Auto())
+                        modifierBoundsHandle = RefreshModifiers();
+                }
                 if (((dirty & SDFDirtyFlags.Transforms) != 0 || modifiersChanged || operationsChanged) && m_Shapes.Count > 0)
                 {
                     using (TransformMarker.Auto())
-                        RefreshDynamicData((dirty & SDFDirtyFlags.Transforms) != 0 || modifiersChanged);
+                        RefreshDynamicData((dirty & SDFDirtyFlags.Transforms) != 0 || modifiersChanged, modifierBoundsHandle);
                 }
             }
             else
@@ -430,7 +511,8 @@ namespace SdfRenderer
             int modifierStart = m_Modifiers.Count;
             bool canUseBoundsDistance = true;
             bool infiniteRepeat = false;
-            Bounds localBounds = shape.GetLocalBounds();
+            Bounds baseLocalBounds = shape.GetLocalBounds();
+            Bounds localBounds = baseLocalBounds;
 
             for (int i = 0; i < m_ModifierScratch.Count; ++i)
             {
@@ -477,6 +559,7 @@ namespace SdfRenderer
             {
                 Shape = shape,
                 Operation = operation,
+                BaseLocalBounds = baseLocalBounds,
                 LocalBounds = localBounds,
                 OperationType = operationType,
                 Smoothness = operation != null ? operation.Smoothness : 0f,
@@ -531,7 +614,7 @@ namespace SdfRenderer
             BaseColor = new Vector4(0.65f, 0.72f, 0.82f, 1f),
             SpecularAndPower = new Vector4(1f, 1f, 1f, 48f),
             EmissionAndCelBands = new Vector4(0f, 0f, 0f, 3f),
-            ModelMetallicSmoothness = new Vector4((float)SDFShadingModel.BlinnPhong, 0f, 0.5f, 0f),
+            ModelMetallicSmoothness = new Vector4((float)SDFShadingModel.PbrLike, 0f, 0.5f, 1f),
             Custom0 = Vector4.zero,
             Custom1 = Vector4.zero,
             CustomShaderTextureIndices = new Vector4(-1f, 0f, 0f, 0f)
@@ -549,7 +632,7 @@ namespace SdfRenderer
                 BaseColor = baseColor,
                 SpecularAndPower = new Vector4(specular.r, specular.g, specular.b, material.SpecularPower),
                 EmissionAndCelBands = new Vector4(emission.r, emission.g, emission.b, material.CelBands),
-                ModelMetallicSmoothness = new Vector4((float)material.ShadingModel, material.Metallic, material.Smoothness, 0f),
+                ModelMetallicSmoothness = new Vector4((float)material.ShadingModel, material.Metallic, material.Smoothness, material.Occlusion),
                 Custom0 = material.Custom0,
                 Custom1 = material.Custom1,
                 CustomShaderTextureIndices = new Vector4(material.CustomShader != null ? SDFCustomShaderRegistry.Resolve(material.CustomShader.StableId) : -1, GetTextureIndex(material.BaseMap), 0f, 0f)
@@ -601,7 +684,7 @@ namespace SdfRenderer
             }
         }
 
-        private void RefreshModifiers()
+        private JobHandle RefreshModifiers()
         {
             for (int i = 0; i < m_ModifierBindings.Count; ++i)
             {
@@ -614,37 +697,7 @@ namespace SdfRenderer
                     Vector = modifier.PackB(),
                     Count = modifier.PackC()
                 };
-            }
-
-            for (int modifiedIndex = 0; modifiedIndex < m_ModifiedShapeIndices.Count; ++modifiedIndex)
-            {
-                int shapeIndex = m_ModifiedShapeIndices[modifiedIndex];
-                ShapeBinding binding = m_ShapeBindings[shapeIndex];
-                Bounds localBounds = binding.Shape.GetLocalBounds();
-                ShapeGpu shape = m_DynamicShapes[shapeIndex];
-                int modifierStart = (int)shape.TypeOperationSmoothModifierStart.w;
-                int modifierCount = (int)shape.MaterialModifierCountDistanceScaleBoundsScale.y;
-                bool canUseBoundsDistance = true;
-                bool infiniteRepeat = false;
-                int modifierEnd = modifierStart + modifierCount;
-                for (int modifierIndex = modifierStart; modifierIndex < modifierEnd; ++modifierIndex)
-                {
-                    SDFModifier modifier = m_ModifierBindings[modifierIndex];
-                    canUseBoundsDistance &= !modifier.InvalidatesBoundsDistance;
-                    infiniteRepeat |= modifier.Type == SDFModifierType.InfiniteRepeat;
-                    ExpandBoundsForModifier(ref localBounds, modifier);
-                }
-                if (infiniteRepeat)
-                    localBounds = binding.Shape.ClipBounds;
-
-                binding.LocalBounds = localBounds;
-                binding.CanUseBoundsDistance = canUseBoundsDistance;
-                m_ShapeBindings[shapeIndex] = binding;
-                ShapeTransformInput input = m_ShapeTransformInputs[shapeIndex];
-                input.LocalCenter = localBounds.center;
-                input.LocalExtents = localBounds.extents;
-                input.CanUseBoundsDistance = canUseBoundsDistance ? 1 : 0;
-                m_ShapeTransformInputs[shapeIndex] = input;
+                m_DynamicModifiers[i] = m_Modifiers[i];
             }
 
             using (UploadMarker.Auto())
@@ -652,11 +705,21 @@ namespace SdfRenderer
                 m_ModifierBufferIndex = (m_ModifierBufferIndex + 1) % DynamicBufferCount;
                 if (m_Modifiers.Count > 0) ModifierBuffer.SetData(m_Modifiers);
             }
+            if (m_DynamicModifiedShapeIndices.Length == 0)
+                return default;
+            PackModifierBoundsJob boundsJob = new PackModifierBoundsJob
+            {
+                ModifiedShapeIndices = m_DynamicModifiedShapeIndices,
+                Modifiers = m_DynamicModifiers,
+                Shapes = m_DynamicShapes,
+                Inputs = m_ShapeTransformInputs
+            };
+            return boundsJob.Schedule(m_DynamicModifiedShapeIndices.Length, 64);
         }
 
-        private void RefreshDynamicData(bool packShapes)
+        private void RefreshDynamicData(bool packShapes, JobHandle dependency)
         {
-            JobHandle shapesHandle = default;
+            JobHandle shapesHandle = dependency;
             if (packShapes)
             {
                 PackShapesJob shapesJob = new PackShapesJob
@@ -664,7 +727,7 @@ namespace SdfRenderer
                     Inputs = m_ShapeTransformInputs,
                     Shapes = m_DynamicShapes
                 };
-                shapesHandle = shapesJob.ScheduleReadOnly(m_ShapeTransforms, 64);
+                shapesHandle = shapesJob.ScheduleReadOnly(m_ShapeTransforms, 64, dependency);
             }
             PackModelsJob modelsJob = new PackModelsJob
             {
@@ -694,6 +757,8 @@ namespace SdfRenderer
             m_ModelTransformInputs = new NativeArray<ModelTransformInput>(m_ModelBindings.Count, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
             m_DynamicShapes = new NativeArray<ShapeGpu>(m_Shapes.Count, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
             m_DynamicModels = new NativeArray<ModelGpu>(m_Models.Count, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+            m_DynamicModifiers = new NativeArray<ModifierGpu>(m_Modifiers.Count, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+            m_DynamicModifiedShapeIndices = new NativeArray<int>(m_ModifiedShapeIndices.Count, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
 
             for (int i = 0; i < m_ShapeBindings.Count; ++i)
             {
@@ -701,8 +766,12 @@ namespace SdfRenderer
                 m_ShapeTransforms.Add(binding.Shape.transform);
                 m_ShapeTransformInputs[i] = new ShapeTransformInput
                 {
+                    BaseLocalCenter = binding.BaseLocalBounds.center,
+                    BaseLocalExtents = binding.BaseLocalBounds.extents,
                     LocalCenter = binding.LocalBounds.center,
                     LocalExtents = binding.LocalBounds.extents,
+                    ClipCenter = binding.Shape.ClipBounds.center,
+                    ClipExtents = binding.Shape.ClipBounds.extents,
                     Smoothness = binding.Smoothness,
                     CanUseBoundsDistance = binding.CanUseBoundsDistance ? 1 : 0
                 };
@@ -721,6 +790,10 @@ namespace SdfRenderer
                 };
                 m_DynamicModels[i] = m_Models[i];
             }
+            for (int i = 0; i < m_Modifiers.Count; ++i)
+                m_DynamicModifiers[i] = m_Modifiers[i];
+            for (int i = 0; i < m_ModifiedShapeIndices.Count; ++i)
+                m_DynamicModifiedShapeIndices[i] = m_ModifiedShapeIndices[i];
         }
 
         private void DisposeTransformJobs()
@@ -730,6 +803,8 @@ namespace SdfRenderer
             if (m_ModelTransformInputs.IsCreated) m_ModelTransformInputs.Dispose();
             if (m_DynamicShapes.IsCreated) m_DynamicShapes.Dispose();
             if (m_DynamicModels.IsCreated) m_DynamicModels.Dispose();
+            if (m_DynamicModifiers.IsCreated) m_DynamicModifiers.Dispose();
+            if (m_DynamicModifiedShapeIndices.IsCreated) m_DynamicModifiedShapeIndices.Dispose();
         }
 
         private int GetTextureIndex(Texture2D texture)

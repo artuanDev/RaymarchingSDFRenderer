@@ -38,5 +38,26 @@ namespace SdfRenderer.Tests
             }
             finally { Object.DestroyImmediate(material); }
         }
+
+        [Test]
+        public void NewMaterialsAndLightingSettingsUseTheUrpLitPathByDefault()
+        {
+            SDFMaterialAsset material = ScriptableObject.CreateInstance<SDFMaterialAsset>();
+            SDFRenderSettings settings = ScriptableObject.CreateInstance<SDFRenderSettings>();
+            try
+            {
+                Assert.That(material.ShadingModel, Is.EqualTo(SDFShadingModel.PbrLike));
+                Assert.That(settings.ReceiveUrpShadows, Is.True);
+                Assert.That(settings.CastMainLightShadows, Is.True);
+                Assert.That(settings.UseUrpScreenSpaceAo, Is.True);
+                Assert.That(settings.AmbientOcclusionStrength, Is.GreaterThan(0f));
+                Assert.That(settings.ShadowMaxSteps, Is.GreaterThan(0));
+            }
+            finally
+            {
+                Object.DestroyImmediate(material);
+                Object.DestroyImmediate(settings);
+            }
+        }
     }
 }

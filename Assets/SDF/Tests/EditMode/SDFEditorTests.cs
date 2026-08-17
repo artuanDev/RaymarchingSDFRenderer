@@ -1,4 +1,5 @@
 using System.Linq;
+using System.Reflection;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
@@ -28,6 +29,20 @@ namespace SdfRenderer.Tests
                 Assert.That(shape.GetComponent<SDFOperation>(), Is.Not.Null);
             }
             finally { Object.DestroyImmediate(model); }
+        }
+
+        [Test]
+        public void EveryPrimitiveHasAHierarchyCreationMenu()
+        {
+            foreach (SDFShapeType type in System.Enum.GetValues(typeof(SDFShapeType)))
+            {
+                MethodInfo method = typeof(SdfRenderer.Editor.SDFCreateMenus).GetMethod(
+                    type.ToString(), BindingFlags.Static | BindingFlags.NonPublic);
+                Assert.That(method, Is.Not.Null, $"Missing creation command for {type}.");
+                MenuItem menu = method.GetCustomAttributes(typeof(MenuItem), false).Cast<MenuItem>().SingleOrDefault();
+                Assert.That(menu, Is.Not.Null, $"Missing GameObject menu registration for {type}.");
+                Assert.That(menu.menuItem, Does.StartWith("GameObject/SDF/"));
+            }
         }
 
         [Test]

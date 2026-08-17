@@ -33,6 +33,7 @@ namespace SdfRenderer.Editor
             {
                 EditorGUILayout.PropertyField(serializedObject.FindProperty("m_Metallic"));
                 EditorGUILayout.PropertyField(serializedObject.FindProperty("m_Smoothness"));
+                EditorGUILayout.PropertyField(serializedObject.FindProperty("m_Occlusion"));
             }
             else if (type == SDFShadingModel.Custom)
             {

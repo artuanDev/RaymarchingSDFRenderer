@@ -161,14 +161,14 @@ namespace SdfRenderer.Editor
             "    }\n\n" +
             "    HLSLPROGRAM\n" +
             "    // Surface-only module: raymarched SDFs have no mesh vertex stage.\n" +
-            "    // Context supplies the composite world normal, hit positions, view/light directions, and screen UV.\n" +
+            "    // Context also supplies ambientOcclusion and selfShadow so custom lighting can follow renderer settings.\n" +
             "    float3 SDFSurface(SDFSurfaceContext context, SDFMaterialGpu material)\n" +
             "    {\n" +
             "        float3 tint = material.Custom0.rgb;\n" +
             "        float strength = material.Custom1.x;\n" +
-            "        float ndotl = saturate(dot(context.normalWS, context.lightDirectionWS));\n" +
+            "        float ndotl = saturate(dot(context.normalWS, context.lightDirectionWS)) * context.selfShadow;\n" +
             "        float3 textureColor = SampleSDFTexture((uint)(material.CustomShaderTextureIndices.y + 0.5), context.positionOS.xz).rgb;\n" +
-            "        return textureColor * tint * (context.ambientColor + context.lightColor * ndotl) * strength;\n" +
+            "        return textureColor * tint * (context.ambientColor * context.ambientOcclusion + context.lightColor * ndotl) * strength;\n" +
             "    }\n" +
             "    ENDHLSL\n" +
             "}\n";

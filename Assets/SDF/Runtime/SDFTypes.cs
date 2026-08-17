@@ -1,4 +1,5 @@
 using System;
+using UnityEngine;
 
 namespace SdfRenderer
 {
@@ -68,6 +69,7 @@ namespace SdfRenderer
         BlinnPhong,
         Unlit,
         Cel,
+        [InspectorName("URP Lit")]
         PbrLike,
         Custom
     }

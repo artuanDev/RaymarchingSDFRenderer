@@ -51,7 +51,7 @@ namespace SdfRenderer.Editor
                     BaseColor = baseColor,
                     SpecularPower = new Vector4(specular.r,specular.g,specular.b,source.SpecularPower),
                     EmissionBands = new Vector4(emission.r,emission.g,emission.b,source.CelBands),
-                    ModelMetalSmooth = new Vector4((float)source.ShadingModel,source.Metallic,source.Smoothness,0f),
+                    ModelMetalSmooth = new Vector4((float)source.ShadingModel,source.Metallic,source.Smoothness,source.Occlusion),
                     Custom0 = source.Custom0, Custom1 = source.Custom1,
                     CustomTexture = new Vector4(source.CustomShader != null ? SDFCustomShaderRegistry.Resolve(source.CustomShader.StableId) : -1, source.BaseMap != null ? 1f : 0f,0f,0f)
                 }});
@@ -74,6 +74,8 @@ namespace SdfRenderer.Editor
                 material.SetFloat("_SDFPixelWorldScale", 2f * Mathf.Tan(camera.fieldOfView * 0.5f * Mathf.Deg2Rad) / height);
                 material.SetInt("_SDFMaxSteps", 192); material.SetFloat("_SDFMaxDistance", 10f); material.SetFloat("_SDFStepSafety", 0.8f);
                 material.SetFloat("_SDFSurfaceEpsilon", 0.0005f); material.SetFloat("_SDFNormalEpsilon", 0.001f); material.SetFloat("_SDFPixelTolerance", 0.5f);
+                material.SetInt("_SDFPassMode", 0); material.SetInt("_SDFPreviewMode", 1);
+                material.SetInt("_SDFSelfShadows", 0); material.SetInt("_SDFAmbientOcclusionEnabled", 0);
                 material.SetVector("_SDFAmbientColor", new Vector3(0.1f,0.11f,0.14f));
                 material.SetVector("_SDFLightDirection", new Vector3(-0.4f,0.7f,-0.6f).normalized);
                 material.SetVector("_SDFLightColor", Vector3.one);
