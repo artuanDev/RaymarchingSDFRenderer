@@ -9,6 +9,7 @@ namespace SdfRenderer.Editor
     {
         private const string PreferenceKey = "SDF.ScenePicking.Enabled";
         private const string MenuPath = "Tools/SDF/Enable Scene Picking";
+        private static readonly int PickerControlHint = "SDFScenePicker".GetHashCode();
         private static readonly List<SDFShape> Shapes = new List<SDFShape>(256);
         private static readonly List<Object> SelectionScratch = new List<Object>(16);
 
@@ -39,7 +40,24 @@ namespace SdfRenderer.Editor
         private static void DuringSceneGui(SceneView sceneView)
         {
             Event current = Event.current;
-            if (!IsEnabled || current == null || current.type != EventType.MouseDown || current.button != 0 || current.alt || GUIUtility.hotControl != 0)
+            if (!IsEnabled || current == null)
+                return;
+
+            int pickerControl = GUIUtility.GetControlID(PickerControlHint, FocusType.Passive);
+            if (current.type == EventType.Layout)
+            {
+                // Behave like Unity's normal scene-selection fallback. Transform
+                // handles, custom handles, and gizmos register closer controls and
+                // therefore retain priority over SDF surface picking.
+                HandleUtility.AddDefaultControl(pickerControl);
+                return;
+            }
+
+            if (current.type != EventType.MouseDown ||
+                current.button != 0 ||
+                current.alt ||
+                GUIUtility.hotControl != 0 ||
+                HandleUtility.nearestControl != pickerControl)
                 return;
 
             Ray ray = HandleUtility.GUIPointToWorldRay(current.mousePosition);
