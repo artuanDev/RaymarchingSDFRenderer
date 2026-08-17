@@ -47,11 +47,14 @@ namespace SdfRenderer.Tests
             try
             {
                 Assert.That(material.ShadingModel, Is.EqualTo(SDFShadingModel.PbrLike));
+                Assert.That(material.Occlusion, Is.EqualTo(1f));
                 Assert.That(settings.ReceiveUrpShadows, Is.True);
                 Assert.That(settings.CastMainLightShadows, Is.True);
                 Assert.That(settings.UseUrpScreenSpaceAo, Is.True);
+                Assert.That(settings.SdfAmbientOcclusion, Is.True);
                 Assert.That(settings.AmbientOcclusionStrength, Is.GreaterThan(0f));
                 Assert.That(settings.ShadowMaxSteps, Is.GreaterThan(0));
+                Assert.That(settings.AmbientColor.maxColorComponent, Is.GreaterThan(0f));
             }
             finally
             {

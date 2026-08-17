@@ -23,3 +23,5 @@ Exact, bound-only, and unsigned catalogue entries are distinguished in the cover
 The march and four-sample normal path evaluate distances only. After a hit, a second ordered fold evaluates surface shaders. Every smooth CSG formula uses the identical interpolation weight for distance and shaded radiance. Since the accumulated radiance is folded at every operation, blends remain correct through arbitrary sequential smooth operations and can cross shading models such as cel and PBR-like.
 
 Hard operations select the shader belonging to the distance winner. Subtraction selects the cutter material on the newly exposed cut surface.
+
+URP lighting, shadow-atlas integration, screen-space ambient occlusion, and ambient/reflection lighting are described in [Lighting.md](Lighting.md).

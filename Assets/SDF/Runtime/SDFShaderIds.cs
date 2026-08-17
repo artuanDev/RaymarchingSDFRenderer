@@ -38,6 +38,20 @@ namespace SdfRenderer
         internal static readonly int AmbientColor = Shader.PropertyToID("_SDFAmbientColor");
         internal static readonly int LightDirection = Shader.PropertyToID("_SDFLightDirection");
         internal static readonly int LightColor = Shader.PropertyToID("_SDFLightColor");
+        internal static readonly int UnityShAr = Shader.PropertyToID("unity_SHAr");
+        internal static readonly int UnityShAg = Shader.PropertyToID("unity_SHAg");
+        internal static readonly int UnityShAb = Shader.PropertyToID("unity_SHAb");
+        internal static readonly int UnityShBr = Shader.PropertyToID("unity_SHBr");
+        internal static readonly int UnityShBg = Shader.PropertyToID("unity_SHBg");
+        internal static readonly int UnityShBb = Shader.PropertyToID("unity_SHBb");
+        internal static readonly int UnityShC = Shader.PropertyToID("unity_SHC");
+        internal static readonly int UnityProbesOcclusion = Shader.PropertyToID("unity_ProbesOcclusion");
+        internal static readonly int UnitySpecCube0 = Shader.PropertyToID("unity_SpecCube0");
+        internal static readonly int UnitySpecCube0Hdr = Shader.PropertyToID("unity_SpecCube0_HDR");
+        internal static readonly int UnitySpecCube0BoxMax = Shader.PropertyToID("unity_SpecCube0_BoxMax");
+        internal static readonly int UnitySpecCube0BoxMin = Shader.PropertyToID("unity_SpecCube0_BoxMin");
+        internal static readonly int UnitySpecCube0ProbePosition = Shader.PropertyToID("unity_SpecCube0_ProbePosition");
+        internal static readonly int UnitySpecCube0Rotation = Shader.PropertyToID("unity_SpecCube0_Rotation");
         internal static readonly int[] Textures =
         {
             Shader.PropertyToID("_SDFTexture0"), Shader.PropertyToID("_SDFTexture1"),

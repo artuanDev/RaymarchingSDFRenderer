@@ -6,6 +6,7 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
         HLSLINCLUDE
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
+            #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DeclareDepthTexture.hlsl"
 
             struct SDFModelGpu
             {
@@ -130,6 +131,7 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
                 float3 lightDirectionWS;
                 float3 lightColor;
                 float3 ambientColor;
+                float directAmbientOcclusion;
                 float ambientOcclusion;
                 float selfShadow;
             };
@@ -184,8 +186,16 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
                     hidden.shadowCascade = shadowCascade;
                     return hidden;
                 }
-                float3 outside = max(max(model.BoundsMinAndShapeStart.xyz - _SDFCameraPosition,
-                                         _SDFCameraPosition - model.BoundsMaxAndShapeCount.xyz), 0.0.xxx);
+                float3 boundsMinimum=model.BoundsMinAndShapeStart.xyz;
+                float3 boundsMaximum=model.BoundsMaxAndShapeCount.xyz;
+                if(_SDFPassMode==3)
+                {
+                    float3 shadowExtrusion=-normalize(_SDFLightDirection)*_SDFShadowMaxDistance;
+                    boundsMinimum=min(boundsMinimum,boundsMinimum+shadowExtrusion);
+                    boundsMaximum=max(boundsMaximum,boundsMaximum+shadowExtrusion);
+                }
+                float3 outside = max(max(boundsMinimum - _SDFCameraPosition,
+                                         _SDFCameraPosition - boundsMaximum), 0.0.xxx);
                 bool cameraInside = _SDFPassMode!=2&&dot(outside, outside) < _SDFCameraNear * _SDFCameraNear * 4.0;
                 uint windingId = vertexId;
                 uint triangleVertex = vertexId % 3u;
@@ -193,14 +203,14 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
                 if (cameraInside && triangleVertex == 2u) windingId = vertexId - 1u;
                 float3 corner = CubeCorner(kCubeIndices[windingId]);
                 Varyings output;
-                output.positionWS = lerp(model.BoundsMinAndShapeStart.xyz, model.BoundsMaxAndShapeCount.xyz, corner);
+                output.positionWS = lerp(boundsMinimum,boundsMaximum,corner);
                 if(_SDFPassMode==2)
                 {
                     float4 shadowPosition=mul(_MainLightWorldToShadow[min(shadowCascade,3u)],float4(output.positionWS,1.0));
                     float2 clipXY=shadowPosition.xy*2.0-shadowPosition.ww;
-                    #if UNITY_UV_STARTS_AT_TOP
-                        clipXY.y=-clipXY.y;
-                    #endif
+                    // _MainLightWorldToShadow already contains URP's render-target
+                    // orientation and cascade-atlas transform. Flipping Y here again
+                    // moves the caster into a different atlas tile on D3D.
                     output.positionCS=float4(clipXY,shadowPosition.z,shadowPosition.w);
                 }
                 else
@@ -503,12 +513,13 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
                 return normalize(e1*EvaluateModel(p+e1*epsilon,modelIndex)+e2*EvaluateModel(p+e2*epsilon,modelIndex)+e3*EvaluateModel(p+e3*epsilon,modelIndex)+e4*EvaluateModel(p+e4*epsilon,modelIndex));
             }
 
-            float EvaluateSdfAmbientOcclusion(float2 screenUV)
+            float2 EvaluateSdfAmbientOcclusion(float2 screenUV)
             {
-                if(_SDFAmbientOcclusionEnabled==0||_SDFAmbientOcclusionStrength<=0.0) return 1.0;
-                if(_SDFUseUrpScreenSpaceAO==0) return 1.0;
+                if(_SDFAmbientOcclusionEnabled==0||_SDFAmbientOcclusionStrength<=0.0) return 1.0.xx;
+                if(_SDFUseUrpScreenSpaceAO==0) return 1.0.xx;
                 AmbientOcclusionFactor ao=GetScreenSpaceAmbientOcclusion(screenUV);
-                return lerp(1.0,ao.indirectAmbientOcclusion,saturate(_SDFAmbientOcclusionStrength));
+                return lerp(1.0.xx,float2(ao.directAmbientOcclusion,ao.indirectAmbientOcclusion),
+                    saturate(_SDFAmbientOcclusionStrength));
             }
 
             float EvaluateSdfSelfShadow(float3 p)
@@ -540,7 +551,11 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
                 inputData.shadowCoord=TransformWorldToShadowCoord(context.positionWS);
                 inputData.fogCoord=0.0;
                 inputData.vertexLighting=half3(0.0,0.0,0.0);
-                inputData.bakedGI=SampleSH(inputData.normalWS);
+                // URP supplies directional ambient light through spherical harmonics
+                // and reflection probes. Retain the explicit ambient term inherited
+                // from the original renderer as a floor when the scene has no useful
+                // ambient probe instead of adding it twice in normally lit scenes.
+                inputData.bakedGI=max(SampleSH(inputData.normalWS),(half3)_SDFAmbientColor);
                 inputData.normalizedScreenSpaceUV=context.screenUV;
                 inputData.shadowMask=half4(1.0,1.0,1.0,1.0);
 
@@ -562,22 +577,11 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
                 }
                 half4 shadowMask=CalculateShadowMask(inputData);
                 AmbientOcclusionFactor aoFactor;
-                if(_SDFUseUrpScreenSpaceAO!=0)
-                {
-                    float aoStrength=_SDFAmbientOcclusionEnabled!=0?saturate(_SDFAmbientOcclusionStrength):0.0;
-                    AmbientOcclusionFactor screenSpaceAO=GetScreenSpaceAmbientOcclusion(inputData.normalizedScreenSpaceUV);
-                    aoFactor.directAmbientOcclusion=lerp(1.0,screenSpaceAO.directAmbientOcclusion,aoStrength);
-                    // Material occlusion is independent of the renderer's SSAO strength.
-                    // This matches URP Lit at strength one while retaining the material's
-                    // physically neutral occlusion value when screen-space AO is disabled.
-                    aoFactor.indirectAmbientOcclusion=min(surfaceData.occlusion,
-                        lerp(1.0,screenSpaceAO.indirectAmbientOcclusion,aoStrength));
-                }
-                else
-                {
-                    aoFactor.directAmbientOcclusion=1.0;
-                    aoFactor.indirectAmbientOcclusion=surfaceData.occlusion;
-                }
+                // EvaluateSurface fetches SSAO once per visible hit. Reusing it here
+                // avoids repeating the same texture lookup for every material touched
+                // by a smooth CSG blend.
+                aoFactor.directAmbientOcclusion=context.directAmbientOcclusion;
+                aoFactor.indirectAmbientOcclusion=min(surfaceData.occlusion,context.ambientOcclusion);
 
                 Light mainLight=GetMainLight(inputData,shadowMask,aoFactor);
                 if(_SDFReceiveUrpShadows==0) mainLight.shadowAttenuation=1.0;
@@ -588,6 +592,22 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
                 lightingData.giColor=GlobalIllumination(brdfData,clearCoatData,surfaceData.clearCoatMask,
                     inputData.bakedGI,aoFactor.indirectAmbientOcclusion,inputData.positionWS,inputData.normalWS,
                     inputData.viewDirectionWS,inputData.normalizedScreenSpaceUV);
+                // Procedural draws do not have a Renderer from which Unity can bind a
+                // per-object reflection probe. Preserve URP's probe result when one is
+                // available, but provide the configured ambient floor to the specular
+                // lobe as well as diffuse GI so smooth metals never collapse to black.
+                half NoV=saturate(dot(inputData.normalWS,inputData.viewDirectionWS));
+                half fresnelTerm=Pow4(1.0h-NoV);
+                half3 ambientFloor=(half3)_SDFAmbientColor*aoFactor.indirectAmbientOcclusion;
+                half3 reflectVector=reflect(-inputData.viewDirectionWS,inputData.normalWS);
+                half reflectionMip=PerceptualRoughnessToMipmapLevel(brdfData.perceptualRoughness);
+                half4 encodedFallbackReflection=half4(SAMPLE_TEXTURECUBE_LOD(
+                    _GlossyEnvironmentCubeMap,sampler_GlossyEnvironmentCubeMap,reflectVector,reflectionMip));
+                half3 fallbackReflection=DecodeHDREnvironment(encodedFallbackReflection,
+                    _GlossyEnvironmentCubeMap_HDR)*aoFactor.indirectAmbientOcclusion;
+                half3 fallbackGi=EnvironmentBRDF(brdfData,ambientFloor,
+                    max(fallbackReflection,ambientFloor),fresnelTerm);
+                lightingData.giColor=max(lightingData.giColor,fallbackGi);
                 lightingData.mainLightColor=LightingPhysicallyBased(brdfData,clearCoatData,mainLight,
                     inputData.normalWS,inputData.viewDirectionWS,surfaceData.clearCoatMask,false);
 
@@ -644,7 +664,9 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
                 context.uv=context.positionOS.xz; context.screenUV=screenUV; context.screenPosition=float4(screenUV,screenUV*_ScaledScreenParams.xy);
                 context.cameraPositionWS=_SDFCameraPosition; context.cameraForwardWS=_SDFCameraForward;
                 context.lightDirectionWS=_SDFLightDirection; context.lightColor=_SDFLightColor; context.ambientColor=_SDFAmbientColor;
-                context.ambientOcclusion=EvaluateSdfAmbientOcclusion(screenUV);
+                float2 ambientOcclusion=EvaluateSdfAmbientOcclusion(screenUV);
+                context.directAmbientOcclusion=ambientOcclusion.x;
+                context.ambientOcclusion=ambientOcclusion.y;
                 context.selfShadow=EvaluateSdfSelfShadow(p);
                 float3 currentColor=ShadeMaterial((uint)(first.MaterialModifierCountDistanceScaleBoundsScale.x+0.5),context);
                 [loop] for(uint i=1u;i<count;++i)
@@ -712,12 +734,9 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
             ShadowFragmentOutput FragShadow(Varyings input)
             {
                 SDFModelGpu model=_SDFModels[input.modelIndex];
-                float2 atlasUV=input.positionCS.xy*_MainLightShadowmapSize.xy;
-                float2 tileScale=1.0.xx;
-                if(_SDFShadowCascadeCount==2) tileScale=float2(0.5,1.0);
-                else if(_SDFShadowCascadeCount>1) tileScale=0.5.xx;
-                float2 tileOffset=float2(input.shadowCascade&1u,input.shadowCascade>>1u)*tileScale;
-                if(any(atlasUV<tileOffset)||any(atlasUV>=tileOffset+tileScale)) discard;
+                // The cascade matrix used by Vert already clips this instance to the
+                // correct atlas tile. A fragment-space tile test is both redundant and
+                // wrong on APIs whose SV_Position Y convention differs from shadow UVs.
                 float3 rayDirection=-normalize(_SDFLightDirection);
                 float3 rayOrigin=input.positionWS-rayDirection*_SDFSurfaceEpsilon*2.0;
                 float2 boxHit=IntersectAabb(rayOrigin,rayDirection,model.BoundsMinAndShapeStart.xyz,model.BoundsMaxAndShapeCount.xyz);
@@ -738,6 +757,47 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
                 ShadowFragmentOutput output;
                 output.depth=shadowPosition.z/shadowPosition.w;
                 return output;
+            }
+
+            half4 FragScreenSpaceShadow(Varyings input) : SV_Target
+            {
+                float2 screenUV=input.positionCS.xy/_ScaledScreenParams.xy;
+                float deviceDepth=SampleSceneDepth(screenUV);
+                #if UNITY_REVERSED_Z
+                    if(deviceDepth<=1e-6) discard;
+                #else
+                    if(deviceDepth>=1.0-1e-6) discard;
+                #endif
+
+                float3 receiverPosition=ComputeWorldSpacePosition(screenUV,deviceDepth,UNITY_MATRIX_I_VP);
+                // Do not multiply a caster's own already-PBR-shaded surface. Its
+                // N.L term already removes direct light on the back side; multiplying
+                // the finished color here would incorrectly crush ambient and probe GI.
+                float receiverDistance=EvaluateModel(receiverPosition,input.modelIndex);
+                if(abs(receiverDistance)<=max(_SDFShadowBias*2.0,_SDFSurfaceEpsilon*4.0)) discard;
+                float3 rayDirection=normalize(_SDFLightDirection);
+                float3 rayOrigin=receiverPosition+rayDirection*_SDFShadowBias;
+                SDFModelGpu model=_SDFModels[input.modelIndex];
+                float2 boxHit=IntersectAabb(rayOrigin,rayDirection,
+                    model.BoundsMinAndShapeStart.xyz,model.BoundsMaxAndShapeCount.xyz);
+                float rayDistance=max(boxHit.x,0.0);
+                float rayEnd=min(boxHit.y,_SDFShadowMaxDistance);
+                if(rayEnd<=rayDistance) discard;
+
+                bool hit=false;
+                [loop] for(int stepIndex=0;stepIndex<_SDFShadowMaxSteps;++stepIndex)
+                {
+                    float sampleDistance=EvaluateModel(rayOrigin+rayDirection*rayDistance,input.modelIndex);
+                    if(abs(sampleDistance)<=_SDFSurfaceEpsilon){hit=true;break;}
+                    rayDistance+=max(abs(sampleDistance)*_SDFShadowStepSafety,_SDFSurfaceEpsilon*0.5);
+                    if(rayDistance>rayEnd) break;
+                }
+                if(!hit) discard;
+
+                // This pass multiplies the already shaded scene, so retain an ambient
+                // floor instead of erasing indirect PBR light along with the direct sun.
+                half attenuation=lerp(1.0h,0.35h,saturate((half)_SDFShadowStrength));
+                return attenuation.xxxx;
             }
 
             struct CameraTraceOutput
@@ -864,6 +924,22 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
             #pragma target 4.5
             #pragma vertex Vert
             #pragma fragment FragShadow
+            ENDHLSL
+        }
+
+        Pass
+        {
+            Name "SDFScreenSpaceShadows"
+            Cull Back
+            ZWrite Off
+            ZTest Always
+            Blend DstColor Zero
+            ColorMask RGB
+
+            HLSLPROGRAM
+            #pragma target 4.5
+            #pragma vertex Vert
+            #pragma fragment FragScreenSpaceShadow
             ENDHLSL
         }
     }

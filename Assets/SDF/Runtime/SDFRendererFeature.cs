@@ -14,6 +14,7 @@ namespace SdfRenderer
 
         private SDFRenderPass m_Pass;
         private SDFMainLightShadowPass m_ShadowPass;
+        private SDFScreenSpaceShadowPass m_ScreenSpaceShadowPass;
         private SDFDepthNormalsPass m_DepthNormalsPass;
         private SDFRenderSettings m_RuntimeSettings;
 
@@ -41,6 +42,10 @@ namespace SdfRenderer
             {
                 renderPassEvent = RenderPassEvent.AfterRenderingShadows
             };
+            m_ScreenSpaceShadowPass = new SDFScreenSpaceShadowPass(m_Pass)
+            {
+                renderPassEvent = (RenderPassEvent)((int)m_InjectionPoint + 1)
+            };
         }
 
         public override void AddRenderPasses(ScriptableRenderer renderer, ref RenderingData renderingData)
@@ -52,11 +57,11 @@ namespace SdfRenderer
                 return;
             m_Pass.SetupCompatibilityCamera(ref renderingData);
             SDFRenderSettings activeSettings = m_Settings != null ? m_Settings : m_RuntimeSettings;
-            if (activeSettings.CastMainLightShadows)
-                renderer.EnqueuePass(m_ShadowPass);
-            if (activeSettings.UseUrpScreenSpaceAo)
+            if (activeSettings.UseUrpScreenSpaceAo || activeSettings.CastMainLightShadows)
                 renderer.EnqueuePass(m_DepthNormalsPass);
             renderer.EnqueuePass(m_Pass);
+            if (activeSettings.CastMainLightShadows)
+                renderer.EnqueuePass(m_ScreenSpaceShadowPass);
         }
 
         protected override void Dispose(bool disposing)
@@ -64,6 +69,7 @@ namespace SdfRenderer
             m_Pass?.Dispose();
             m_Pass = null;
             m_ShadowPass = null;
+            m_ScreenSpaceShadowPass = null;
             m_DepthNormalsPass = null;
             CoreUtils.Destroy(m_RuntimeSettings);
             m_RuntimeSettings = null;
@@ -239,6 +245,35 @@ namespace SdfRenderer
                 });
             }
 
+            internal void RecordScreenSpaceShadows(RenderGraph renderGraph, ContextContainer frameData)
+            {
+                m_SceneData.UpdateIfNeeded();
+                if (m_SceneData.ModelCount <= 0 || m_Material == null)
+                    return;
+
+                UniversalResourceData resources = frameData.Get<UniversalResourceData>();
+                if (!resources.cameraDepthTexture.IsValid())
+                    return;
+                UniversalCameraData cameraData = frameData.Get<UniversalCameraData>();
+                UniversalLightData lightData = frameData.Get<UniversalLightData>();
+                Matrix4x4 gpuProjection = GL.GetGPUProjectionMatrix(cameraData.GetProjectionMatrix(), !resources.isActiveTargetBackBuffer);
+                CameraState camera = BuildCameraState(cameraData.camera, gpuProjection * cameraData.GetViewMatrix(), lightData);
+
+                using IRasterRenderGraphBuilder builder = renderGraph.AddRasterRenderPass<PassData>("SDF Screen Space Shadows", out PassData passData, profilingSampler);
+                passData.Material = m_Material;
+                passData.ModelCount = m_SceneData.ModelCount;
+                passData.InstanceCount = m_SceneData.ModelCount;
+                passData.ShaderPass = 3;
+                passData.Properties = BuildProperties(camera, 3);
+                builder.SetRenderAttachment(resources.activeColorTexture, 0, AccessFlags.ReadWrite);
+                builder.UseTexture(resources.cameraDepthTexture, AccessFlags.Read);
+                builder.AllowPassCulling(false);
+                builder.SetRenderFunc(static (PassData data, RasterGraphContext context) =>
+                {
+                    context.cmd.DrawProcedural(Matrix4x4.identity, data.Material, data.ShaderPass, MeshTopology.Triangles, 36, data.InstanceCount, data.Properties);
+                });
+            }
+
             private MaterialPropertyBlock BuildProperties(CameraState camera, int passMode, int shadowCascadeCount = 0)
             {
                 long key = ((long)camera.CameraId << 32) | (uint)passMode;
@@ -283,6 +318,27 @@ namespace SdfRenderer
                 properties.SetColor(SDFShaderIds.AmbientColor, ambient);
                 properties.SetVector(SDFShaderIds.LightDirection, camera.LightDirection);
                 properties.SetColor(SDFShaderIds.LightColor, camera.LightColor);
+                // Procedural draws have no Renderer, so Unity does not populate the
+                // per-renderer ambient-probe and reflection-probe built-ins for us.
+                // Bind the scene defaults explicitly to make SampleSH and URP's
+                // environment BRDF match a regular MeshRenderer.
+                SHCoefficients sphericalHarmonics = new SHCoefficients(RenderSettings.ambientProbe);
+                properties.SetVector(SDFShaderIds.UnityShAr, sphericalHarmonics.SHAr);
+                properties.SetVector(SDFShaderIds.UnityShAg, sphericalHarmonics.SHAg);
+                properties.SetVector(SDFShaderIds.UnityShAb, sphericalHarmonics.SHAb);
+                properties.SetVector(SDFShaderIds.UnityShBr, sphericalHarmonics.SHBr);
+                properties.SetVector(SDFShaderIds.UnityShBg, sphericalHarmonics.SHBg);
+                properties.SetVector(SDFShaderIds.UnityShBb, sphericalHarmonics.SHBb);
+                properties.SetVector(SDFShaderIds.UnityShC, sphericalHarmonics.SHC);
+                properties.SetVector(SDFShaderIds.UnityProbesOcclusion, Vector4.one);
+                Texture defaultReflection = ReflectionProbe.defaultTexture;
+                if (defaultReflection != null)
+                    properties.SetTexture(SDFShaderIds.UnitySpecCube0, defaultReflection);
+                properties.SetVector(SDFShaderIds.UnitySpecCube0Hdr, ReflectionProbe.defaultTextureHDRDecodeValues);
+                properties.SetVector(SDFShaderIds.UnitySpecCube0BoxMax, Vector4.zero);
+                properties.SetVector(SDFShaderIds.UnitySpecCube0BoxMin, Vector4.zero);
+                properties.SetVector(SDFShaderIds.UnitySpecCube0ProbePosition, Vector4.zero);
+                properties.SetVector(SDFShaderIds.UnitySpecCube0Rotation, new Vector4(0f, 0f, 0f, 1f));
                 for (int i = 0; i < SDFShaderIds.Textures.Length; ++i)
                 {
                     Texture texture = i < m_SceneData.Textures.Count ? m_SceneData.Textures[i] : Texture2D.whiteTexture;
@@ -314,6 +370,20 @@ namespace SdfRenderer
                     direction = -(Vector3)mainLight.localToWorldMatrix.GetColumn(2);
                     sourceColor = mainLight.finalColor;
                     intensity = 1f;
+                }
+                else
+                {
+                    // Match the original SDF pipeline's fallback order. URP normally
+                    // exposes this light through UniversalLightData; RenderSettings.sun
+                    // also keeps previews and compatibility cameras consistent when it
+                    // is temporarily absent from the camera's visible-light list.
+                    Light sun = RenderSettings.sun;
+                    if (sun != null && sun.isActiveAndEnabled && sun.type == LightType.Directional)
+                    {
+                        direction = -sun.transform.forward;
+                        sourceColor = sun.color;
+                        intensity = sun.intensity;
+                    }
                 }
                 Color color = useUrpMainLight
                     ? sourceColor * intensity
@@ -365,6 +435,25 @@ namespace SdfRenderer
 
             public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData) =>
                 m_Owner.RecordDepthNormals(renderGraph, frameData);
+
+#pragma warning disable CS0672, CS0618
+            public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData) { }
+#pragma warning restore CS0672, CS0618
+        }
+
+        private sealed class SDFScreenSpaceShadowPass : ScriptableRenderPass
+        {
+            private readonly SDFRenderPass m_Owner;
+
+            internal SDFScreenSpaceShadowPass(SDFRenderPass owner)
+            {
+                m_Owner = owner;
+                profilingSampler = new ProfilingSampler("SDF/Screen Space Shadows");
+                ConfigureInput(ScriptableRenderPassInput.Depth);
+            }
+
+            public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData) =>
+                m_Owner.RecordScreenSpaceShadows(renderGraph, frameData);
 
 #pragma warning disable CS0672, CS0618
             public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData) { }
