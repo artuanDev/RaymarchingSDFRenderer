@@ -217,6 +217,7 @@ namespace SdfRenderer
             [ReadOnly] public NativeArray<ModifierGpu> Modifiers;
             [NativeDisableParallelForRestriction] public NativeArray<ShapeGpu> Shapes;
             [NativeDisableParallelForRestriction] public NativeArray<ShapeTransformInput> Inputs;
+            public int UpdateWorldBounds;
 
             public void Execute(int index)
             {
@@ -278,6 +279,9 @@ namespace SdfRenderer
                 input.LocalCenter = center;
                 input.LocalExtents = extents;
                 input.CanUseBoundsDistance = canUseBoundsDistance ? 1 : 0;
+                Inputs[shapeIndex] = input;
+                if (UpdateWorldBounds == 0)
+                    return;
                 ShapeGpu updatedShape = shape;
                 updatedShape.MaterialModifierCountDistanceScaleBoundsScale.w = canUseBoundsDistance
                     ? math.saturate(input.DistanceScale / math.max(0.000001f, input.MaximumScale)) : 0f;
@@ -291,7 +295,6 @@ namespace SdfRenderer
                     math.abs(input.LocalToWorld2.x) * extents.x + math.abs(input.LocalToWorld2.y) * extents.y + math.abs(input.LocalToWorld2.z) * extents.z) + 0.002f;
                 updatedShape.BoundsMin = new Vector4(worldCenter.x - worldExtents.x, worldCenter.y - worldExtents.y, worldCenter.z - worldExtents.z, 0f);
                 updatedShape.BoundsMax = new Vector4(worldCenter.x + worldExtents.x, worldCenter.y + worldExtents.y, worldCenter.z + worldExtents.z, 0f);
-                Inputs[shapeIndex] = input;
                 Shapes[shapeIndex] = updatedShape;
             }
         }
@@ -345,6 +348,30 @@ namespace SdfRenderer
                         input.RenderInSceneView != 0 ? input.ShapeCount : -input.ShapeCount)
                 };
             }
+        }
+
+        [BurstCompile]
+        private struct CopyShapesToMappedBufferJob : IJobParallelFor
+        {
+            [ReadOnly] public NativeArray<ShapeGpu> Source;
+            [WriteOnly] public NativeArray<ShapeGpu> Destination;
+            public void Execute(int index) => Destination[index] = Source[index];
+        }
+
+        [BurstCompile]
+        private struct CopyModelsToMappedBufferJob : IJobParallelFor
+        {
+            [ReadOnly] public NativeArray<ModelGpu> Source;
+            [WriteOnly] public NativeArray<ModelGpu> Destination;
+            public void Execute(int index) => Destination[index] = Source[index];
+        }
+
+        [BurstCompile]
+        private struct CopyModifiersToMappedBufferJob : IJobParallelFor
+        {
+            [ReadOnly] public NativeArray<ModifierGpu> Source;
+            [WriteOnly] public NativeArray<ModifierGpu> Destination;
+            public void Execute(int index) => Destination[index] = Source[index];
         }
 
         private readonly List<ModelGpu> m_Models = new List<ModelGpu>(128);
@@ -434,7 +461,7 @@ namespace SdfRenderer
                 if (modifiersChanged)
                 {
                     using (ModifierMarker.Auto())
-                        modifierBoundsHandle = RefreshModifiers();
+                        modifierBoundsHandle = RefreshModifiers((dirty & SDFDirtyFlags.Transforms) == 0);
                 }
                 if (((dirty & SDFDirtyFlags.Transforms) != 0 || modifiersChanged || operationsChanged) && m_Shapes.Count > 0)
                 {
@@ -836,7 +863,7 @@ namespace SdfRenderer
                 SDFPerformanceMetrics.Record(operations: changedCount);
         }
 
-        private JobHandle RefreshModifiers()
+        private JobHandle RefreshModifiers(bool updateWorldBounds)
         {
             m_ChangedModifiedShapeIndices.Clear();
             int changedModifierCount = 0;
@@ -865,8 +892,20 @@ namespace SdfRenderer
 
             using (UploadMarker.Auto())
             {
-                m_ModifierBufferIndex = (m_ModifierBufferIndex + 1) % DynamicBufferCount;
-                if (m_Modifiers.Count > 0) ModifierBuffer.SetData(m_Modifiers);
+                int nextBufferIndex = (m_ModifierBufferIndex + 1) % DynamicBufferCount;
+                if (m_Modifiers.Count > 0)
+                {
+                    GraphicsBuffer nextBuffer = m_ModifierBuffers[nextBufferIndex];
+                    NativeArray<ModifierGpu> mapped = nextBuffer.LockBufferForWrite<ModifierGpu>(0, m_DynamicModifiers.Length);
+                    JobHandle copyHandle = new CopyModifiersToMappedBufferJob
+                    {
+                        Source = m_DynamicModifiers,
+                        Destination = mapped
+                    }.Schedule(m_DynamicModifiers.Length, 128);
+                    copyHandle.Complete();
+                    nextBuffer.UnlockBufferAfterWrite<ModifierGpu>(m_DynamicModifiers.Length);
+                }
+                m_ModifierBufferIndex = nextBufferIndex;
                 SDFPerformanceMetrics.Record((long)m_Modifiers.Count * Marshal.SizeOf<ModifierGpu>(),
                     modifiers: changedModifierCount, bounds: m_ChangedModifiedShapeIndices.Count);
             }
@@ -879,7 +918,8 @@ namespace SdfRenderer
                 ModifiedShapeIndices = m_DynamicModifiedShapeIndices,
                 Modifiers = m_DynamicModifiers,
                 Shapes = m_DynamicShapes,
-                Inputs = m_ShapeTransformInputs
+                Inputs = m_ShapeTransformInputs,
+                UpdateWorldBounds = updateWorldBounds ? 1 : 0
             };
             return boundsJob.Schedule(m_ChangedModifiedShapeIndices.Count, 64);
         }
@@ -903,13 +943,28 @@ namespace SdfRenderer
                 Models = m_DynamicModels
             };
             JobHandle modelsHandle = modelsJob.Schedule(m_DynamicModels.Length, 64, shapesHandle);
-            modelsHandle.Complete();
 
             using (UploadMarker.Auto())
             {
-                m_DynamicBufferIndex = (m_DynamicBufferIndex + 1) % DynamicBufferCount;
-                ShapeBuffer.SetData(m_DynamicShapes);
-                ModelBuffer.SetData(m_DynamicModels);
+                int nextBufferIndex = (m_DynamicBufferIndex + 1) % DynamicBufferCount;
+                GraphicsBuffer nextShapeBuffer = m_ShapeBuffers[nextBufferIndex];
+                GraphicsBuffer nextModelBuffer = m_ModelBuffers[nextBufferIndex];
+                NativeArray<ShapeGpu> mappedShapes = nextShapeBuffer.LockBufferForWrite<ShapeGpu>(0, m_DynamicShapes.Length);
+                NativeArray<ModelGpu> mappedModels = nextModelBuffer.LockBufferForWrite<ModelGpu>(0, m_DynamicModels.Length);
+                JobHandle copyShapesHandle = new CopyShapesToMappedBufferJob
+                {
+                    Source = m_DynamicShapes,
+                    Destination = mappedShapes
+                }.Schedule(m_DynamicShapes.Length, 128, shapesHandle);
+                JobHandle copyModelsHandle = new CopyModelsToMappedBufferJob
+                {
+                    Source = m_DynamicModels,
+                    Destination = mappedModels
+                }.Schedule(m_DynamicModels.Length, 128, modelsHandle);
+                JobHandle.CombineDependencies(copyShapesHandle, copyModelsHandle).Complete();
+                nextShapeBuffer.UnlockBufferAfterWrite<ShapeGpu>(m_DynamicShapes.Length);
+                nextModelBuffer.UnlockBufferAfterWrite<ModelGpu>(m_DynamicModels.Length);
+                m_DynamicBufferIndex = nextBufferIndex;
                 SDFPerformanceMetrics.Record(
                     (long)m_DynamicShapes.Length * Marshal.SizeOf<ShapeGpu>() +
                     (long)m_DynamicModels.Length * Marshal.SizeOf<ModelGpu>(),
@@ -1083,7 +1138,8 @@ namespace SdfRenderer
             Release(buffers);
             capacity = Mathf.NextPowerOfTwo(required);
             for (int i = 0; i < buffers.Length; ++i)
-                buffers[i] = new GraphicsBuffer(GraphicsBuffer.Target.Structured, capacity, stride) { name = name + " " + i };
+                buffers[i] = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
+                    GraphicsBuffer.UsageFlags.LockBufferForWrite, capacity, stride) { name = name + " " + i };
         }
 
         private static void Release(ref GraphicsBuffer buffer)

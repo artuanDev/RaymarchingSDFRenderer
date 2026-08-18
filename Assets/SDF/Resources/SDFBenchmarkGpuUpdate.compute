@@ -1,0 +1,321 @@
+#pragma kernel UpdateBenchmark
+#pragma target 5.0
+
+struct ModelGpu
+{
+    float4 BoundsMinAndShapeStart;
+    float4 BoundsMaxAndShapeCount;
+};
+
+struct ShapeGpu
+{
+    float4 WorldToLocal0;
+    float4 WorldToLocal1;
+    float4 WorldToLocal2;
+    float4 Parameters0;
+    float4 Parameters1;
+    float4 Parameters2;
+    float4 Parameters3;
+    float4 TypeOperationSmoothModifierStart;
+    float4 MaterialModifierCountDistanceScaleBoundsScale;
+    float4 BoundsMin;
+    float4 BoundsMax;
+};
+
+struct ModifierGpu
+{
+    float4 TypeAxesAmount;
+    float4 Vector;
+    float4 Count;
+};
+
+struct MaterialGpu
+{
+    float4 BaseColor;
+    float4 SpecularAndPower;
+    float4 EmissionAndCelBands;
+    float4 ModelMetallicSmoothness;
+    float4 Custom0;
+    float4 Custom1;
+    float4 CustomShaderTextureIndices;
+};
+
+RWStructuredBuffer<ModelGpu> _SDFModels;
+RWStructuredBuffer<ShapeGpu> _SDFShapes;
+RWStructuredBuffer<ModifierGpu> _SDFModifiers;
+RWStructuredBuffer<MaterialGpu> _SDFMaterials;
+
+uint _ModelCount;
+uint _MaterialCount;
+uint _GridWidth;
+float _GridSpacing;
+float _AnimationTime;
+uint _AnimationFlags;
+uint _IncludeOperations;
+uint _IncludeModifiers;
+uint _LinearColorSpace;
+
+static const uint AnimatePositions = 1u;
+static const uint AnimateRotations = 2u;
+static const uint AnimateScales = 4u;
+static const uint AnimateMaterials = 8u;
+static const uint AnimateOperations = 16u;
+static const uint AnimateModifiers = 32u;
+
+float3 SrgbToLinear(float3 color)
+{
+    float3 low = color / 12.92;
+    float3 high = pow((color + 0.055) / 1.055, 2.4);
+    return lerp(high, low, step(color, 0.04045));
+}
+
+float3 OutputColor(float3 color)
+{
+    return _LinearColorSpace != 0u ? SrgbToLinear(color) : color;
+}
+
+float3 HsvToRgb(float hue, float saturation, float value)
+{
+    float3 rgb = saturate(abs(frac(hue + float3(0.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0) - 1.0);
+    return value * lerp(1.0.xxx, rgb, saturation);
+}
+
+float4 QuaternionMultiply(float4 a, float4 b)
+{
+    return float4(a.w * b.xyz + b.w * a.xyz + cross(a.xyz, b.xyz), a.w * b.w - dot(a.xyz, b.xyz));
+}
+
+void RotationAxes(float3 radians, out float3 axisX, out float3 axisY, out float3 axisZ)
+{
+    float sx, cx, sy, cy, sz, cz;
+    sincos(radians.x * 0.5, sx, cx);
+    sincos(radians.y * 0.5, sy, cy);
+    sincos(radians.z * 0.5, sz, cz);
+    float4 qx = float4(sx, 0.0, 0.0, cx);
+    float4 qy = float4(0.0, sy, 0.0, cy);
+    float4 qz = float4(0.0, 0.0, sz, cz);
+    float4 q = QuaternionMultiply(qy, QuaternionMultiply(qx, qz));
+    float xx = q.x * q.x, yy = q.y * q.y, zz = q.z * q.z;
+    float xy = q.x * q.y, xz = q.x * q.z, yz = q.y * q.z;
+    float wx = q.w * q.x, wy = q.w * q.y, wz = q.w * q.z;
+    axisX = float3(1.0 - 2.0 * (yy + zz), 2.0 * (xy + wz), 2.0 * (xz - wy));
+    axisY = float3(2.0 * (xy - wz), 1.0 - 2.0 * (xx + zz), 2.0 * (yz + wx));
+    axisZ = float3(2.0 * (xz + wy), 2.0 * (yz - wx), 1.0 - 2.0 * (xx + yy));
+}
+
+void MakeTransform(float3 position, float scale, float3 axisX, float3 axisY, float3 axisZ,
+    float3 childPosition, out float4 row0, out float4 row1, out float4 row2, out float3 worldCenter)
+{
+    float inverseScale = rcp(max(scale, 1e-6));
+    row0 = float4(axisX * inverseScale, -dot(axisX, position) * inverseScale - childPosition.x);
+    row1 = float4(axisY * inverseScale, -dot(axisY, position) * inverseScale - childPosition.y);
+    row2 = float4(axisZ * inverseScale, -dot(axisZ, position) * inverseScale - childPosition.z);
+    worldCenter = position + scale * (axisX * childPosition.x + axisY * childPosition.y + axisZ * childPosition.z);
+}
+
+void WorldBounds(float3 center, float scale, float3 axisX, float3 axisY, float3 axisZ,
+    float3 localExtents, out float3 minimum, out float3 maximum)
+{
+    float3 extents = scale * (abs(axisX) * localExtents.x + abs(axisY) * localExtents.y + abs(axisZ) * localExtents.z) + 0.002.xxx;
+    minimum = center - extents;
+    maximum = center + extents;
+}
+
+void DefaultParameters(uint type, out float4 p0, out float4 p1, out float4 p2, out float4 p3, out float3 extents)
+{
+    p0 = float4(0.5, 1.0, 0.75, 0.2);
+    p1 = float4(0.5, 0.5, 0.5, 0.1);
+    p2 = float4(0.0, -0.5, 0.0, 0.1);
+    p3 = float4(0.0, 0.5, 0.0, 0.785398163);
+    if (type == 0u) extents = 0.5.xxx;
+    else if (type == 2u) extents = 0.6.xxx;
+    else extents = float3(0.95, 0.2, 0.95); // default torus: radiusA + radiusB, radiusB
+}
+
+void BuildModifier(uint index, float time, bool animate, out ModifierGpu modifier,
+    inout float3 localCenter, inout float3 localExtents, out float boundsScale)
+{
+    uint type = index % 10u;
+    uint axes = (type == 6u || type == 7u) ? 2u : 1u;
+    float wave = animate ? sin(time * 1.25 + (float)index * 0.23) : 0.0;
+    float amount = 0.12;
+    float3 vectorValue = float3(0.18, 0.0, 0.0);
+    float3 count = float3(1.0, 0.0, 0.0);
+    if (type == 4u || type == 5u)
+        vectorValue = float3(1.25 + wave * 0.18, 1.0, 1.0);
+    else if (type == 2u || type == 3u)
+        vectorValue.x = 0.18 + wave * 0.1;
+    else
+        amount += wave * 0.08;
+
+    modifier.TypeAxesAmount = float4((float)type, (float)axes, amount, 0.0);
+    modifier.Vector = float4(vectorValue, 0.0);
+    modifier.Count = float4(count, 0.0);
+    boundsScale = (type == 5u || type == 6u || type == 7u || type == 8u) ? 0.0 : 1.0;
+    float3 mask = float3((axes & 1u) != 0u ? 1.0 : 0.0,
+        (axes & 2u) != 0u ? 1.0 : 0.0, (axes & 4u) != 0u ? 1.0 : 0.0);
+    if (type == 0u || type == 1u)
+        localExtents += abs(amount);
+    else if (type == 2u)
+        localExtents += abs(vectorValue) * mask;
+    else if (type == 3u)
+    {
+        float3 offset = abs(vectorValue) * mask;
+        if ((axes & 1u) != 0u) { localExtents.x += abs(localCenter.x) + offset.x; localCenter.x = 0.0; }
+        if ((axes & 2u) != 0u) { localExtents.y += abs(localCenter.y) + offset.y; localCenter.y = 0.0; }
+        if ((axes & 4u) != 0u) { localExtents.z += abs(localCenter.z) + offset.z; localCenter.z = 0.0; }
+    }
+    else if (type == 4u)
+        localExtents += abs(vectorValue) * count * mask;
+    else if (type == 5u)
+    {
+        localCenter = 0.0.xxx;
+        localExtents = 0.9.xxx;
+    }
+    else if (type == 6u || type == 7u)
+    {
+        float radius = length(localCenter) + length(localExtents);
+        localCenter = 0.0.xxx;
+        localExtents = radius.xxx;
+    }
+    else if (type == 8u)
+    {
+        float radius = abs(amount) + abs(localCenter.x) + localExtents.x;
+        localCenter = float3(0.0, localCenter.y, 0.0);
+        localExtents = float3(radius, localExtents.y, radius);
+    }
+    else if (type == 9u)
+        localExtents += abs(amount) * mask;
+}
+
+void WriteMaterial(uint index)
+{
+    float hue = (float)index / max((float)_MaterialCount, 1.0);
+    bool animate = (_AnimationFlags & AnimateMaterials) != 0u;
+    if (animate) hue = frac(hue + _AnimationTime * 0.08);
+    float3 colorSrgb = HsvToRgb(hue, 0.65 + (animate ? 0.07 : 0.0), 0.9);
+    float3 color = OutputColor(colorSrgb);
+    float emissionAmount = animate ? 0.03 + 0.03 * sin(_AnimationTime * 1.4 + (float)index) : 0.0;
+    MaterialGpu material;
+    material.BaseColor = float4(color, 1.0);
+    material.SpecularAndPower = float4(1.0, 1.0, 1.0, 48.0);
+    material.EmissionAndCelBands = float4(OutputColor(colorSrgb * emissionAmount), 3.0);
+    material.ModelMetallicSmoothness = float4(3.0, 0.0,
+        animate ? 0.5 + 0.4 * sin(_AnimationTime * 0.7 + (float)index * 0.8) : 0.5, 1.0);
+    material.Custom0 = 0.0.xxxx;
+    material.Custom1 = 0.0.xxxx;
+    material.CustomShaderTextureIndices = float4(-1.0, 0.0, 0.0, 0.0);
+    _SDFMaterials[index] = material;
+}
+
+[numthreads(64, 1, 1)]
+void UpdateBenchmark(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    uint index = dispatchThreadId.x;
+    if (index < _MaterialCount)
+        WriteMaterial(index);
+    if (index >= _ModelCount)
+        return;
+
+    float phase = _AnimationTime + (float)index * 0.173;
+    uint gridX = index % _GridWidth;
+    uint gridZ = index / _GridWidth;
+    float3 position = float3(((float)gridX - (float)_GridWidth * 0.5) * _GridSpacing, 0.0,
+                             ((float)gridZ - (float)_GridWidth * 0.5) * _GridSpacing);
+    if ((_AnimationFlags & AnimatePositions) != 0u)
+        position.y = sin(phase * 1.7) * 0.35;
+    float3 rotation = 0.0.xxx;
+    if ((_AnimationFlags & AnimateRotations) != 0u)
+        rotation = radians(float3(sin(phase * 0.9) * 35.0, phase * 55.0, cos(phase * 1.1) * 20.0));
+    float scale = (_AnimationFlags & AnimateScales) != 0u ? 1.0 + sin(phase * 1.3) * 0.28 : 1.0;
+    float3 axisX, axisY, axisZ;
+    RotationAxes(rotation, axisX, axisY, axisZ);
+
+    uint baseType = (index & 1u) == 0u ? 0u : 2u;
+    float4 p0, p1, p2, p3;
+    float3 localExtents;
+    DefaultParameters(baseType, p0, p1, p2, p3, localExtents);
+    float3 localCenter = 0.0.xxx;
+    ModifierGpu modifier;
+    float boundsScale = 1.0;
+    if (_IncludeModifiers != 0u)
+        BuildModifier(index, _AnimationTime, (_AnimationFlags & AnimateModifiers) != 0u,
+            modifier, localCenter, localExtents, boundsScale);
+    else
+    {
+        modifier.TypeAxesAmount = 0.0.xxxx;
+        modifier.Vector = 0.0.xxxx;
+        modifier.Count = 0.0.xxxx;
+    }
+    _SDFModifiers[index] = modifier;
+
+    float4 row0, row1, row2;
+    float3 baseCenter;
+    MakeTransform(position, scale, axisX, axisY, axisZ, 0.0.xxx, row0, row1, row2, baseCenter);
+    float3 boundsCenter = baseCenter + scale * (axisX * localCenter.x + axisY * localCenter.y + axisZ * localCenter.z);
+    float3 baseMin, baseMax;
+    WorldBounds(boundsCenter, scale, axisX, axisY, axisZ, localExtents, baseMin, baseMax);
+
+    ShapeGpu baseShape;
+    baseShape.WorldToLocal0 = row0;
+    baseShape.WorldToLocal1 = row1;
+    baseShape.WorldToLocal2 = row2;
+    baseShape.Parameters0 = p0;
+    baseShape.Parameters1 = p1;
+    baseShape.Parameters2 = p2;
+    baseShape.Parameters3 = p3;
+    baseShape.TypeOperationSmoothModifierStart = float4((float)baseType, 0.0, 0.0, (float)index);
+    baseShape.MaterialModifierCountDistanceScaleBoundsScale = float4((float)(index % _MaterialCount),
+        _IncludeModifiers != 0u ? 1.0 : 0.0, scale, boundsScale);
+    baseShape.BoundsMin = float4(baseMin, 0.0);
+    baseShape.BoundsMax = float4(baseMax, 0.0);
+    _SDFShapes[index * 2u] = baseShape;
+
+    uint shapeCount = 1u;
+    float3 modelMin = baseMin;
+    float3 modelMax = baseMax;
+    if (_IncludeOperations != 0u)
+    {
+        shapeCount = 2u;
+        uint operandType = index % 3u == 0u ? 0u : (index % 3u == 1u ? 2u : 4u);
+        float3 operandExtents;
+        DefaultParameters(operandType, p0, p1, p2, p3, operandExtents);
+        float3 childPosition = float3(0.38, 0.08, 0.0);
+        float3 operandCenter;
+        MakeTransform(position, scale, axisX, axisY, axisZ, childPosition, row0, row1, row2, operandCenter);
+        float3 operandMin, operandMax;
+        WorldBounds(operandCenter, scale, axisX, axisY, axisZ, operandExtents, operandMin, operandMax);
+        uint operation = (index + (((_AnimationFlags & AnimateOperations) != 0u) ? (uint)floor(_AnimationTime * 0.35) : 0u)) % 6u;
+        float smoothness = ((_AnimationFlags & AnimateOperations) != 0u)
+            ? 0.08 + (sin(_AnimationTime * 1.1 + (float)index * 0.31) * 0.5 + 0.5) * 0.24 : 0.18;
+        ShapeGpu operand;
+        operand.WorldToLocal0 = row0;
+        operand.WorldToLocal1 = row1;
+        operand.WorldToLocal2 = row2;
+        operand.Parameters0 = p0;
+        operand.Parameters1 = p1;
+        operand.Parameters2 = p2;
+        operand.Parameters3 = p3;
+        operand.TypeOperationSmoothModifierStart = float4((float)operandType, (float)operation, smoothness * scale, 0.0);
+        operand.MaterialModifierCountDistanceScaleBoundsScale = float4((float)((index + 1u) % _MaterialCount), 0.0, scale, 1.0);
+        operand.BoundsMin = float4(operandMin, 0.0);
+        operand.BoundsMax = float4(operandMax, 0.0);
+        _SDFShapes[index * 2u + 1u] = operand;
+        if (operation == 0u || operation == 3u)
+        {
+            modelMin = min(modelMin, operandMin);
+            modelMax = max(modelMax, operandMax);
+            if (operation == 3u)
+            {
+                modelMin -= smoothness * scale;
+                modelMax += smoothness * scale;
+            }
+        }
+    }
+    modelMin -= 0.02.xxx;
+    modelMax += 0.02.xxx;
+    ModelGpu model;
+    model.BoundsMinAndShapeStart = float4(modelMin, (float)(index * 2u));
+    model.BoundsMaxAndShapeCount = float4(modelMax, (float)shapeCount);
+    _SDFModels[index] = model;
+}

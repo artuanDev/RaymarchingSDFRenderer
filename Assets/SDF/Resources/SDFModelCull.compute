@@ -1,0 +1,78 @@
+#pragma kernel ClearArguments
+#pragma kernel CullModels
+#pragma target 5.0
+
+struct ModelGpu
+{
+    float4 BoundsMinAndShapeStart;
+    float4 BoundsMaxAndShapeCount;
+};
+
+StructuredBuffer<ModelGpu> _SDFCullModels;
+RWStructuredBuffer<uint> _SDFVisibleModelIndices;
+RWStructuredBuffer<uint> _SDFIndirectArguments;
+
+uint _SDFCullModelCount;
+uint _SDFCullSceneView;
+float4 _SDFFrustumPlane0;
+float4 _SDFFrustumPlane1;
+float4 _SDFFrustumPlane2;
+float4 _SDFFrustumPlane3;
+float4 _SDFFrustumPlane4;
+float4 _SDFFrustumPlane5;
+
+groupshared uint _SDFGroupVisible[64];
+groupshared uint _SDFGroupOutputBase;
+
+bool OutsidePlane(float3 center, float3 extents, float4 plane)
+{
+    float radius = dot(abs(plane.xyz), extents);
+    return dot(plane.xyz, center) + plane.w + radius < 0.0;
+}
+
+[numthreads(1, 1, 1)]
+void ClearArguments(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    _SDFIndirectArguments[0] = 36u;
+    _SDFIndirectArguments[1] = 0u;
+    _SDFIndirectArguments[2] = 0u;
+    _SDFIndirectArguments[3] = 0u;
+}
+
+[numthreads(64, 1, 1)]
+void CullModels(uint3 dispatchThreadId : SV_DispatchThreadID, uint groupIndex : SV_GroupIndex)
+{
+    uint modelIndex = dispatchThreadId.x;
+    bool visible = modelIndex < _SDFCullModelCount;
+    if (visible)
+    {
+        ModelGpu model = _SDFCullModels[modelIndex];
+        visible = !(_SDFCullSceneView != 0u && model.BoundsMaxAndShapeCount.w < 0.0);
+        float3 minimum = model.BoundsMinAndShapeStart.xyz;
+        float3 maximum = model.BoundsMaxAndShapeCount.xyz;
+        float3 center = (minimum + maximum) * 0.5;
+        float3 extents = max((maximum - minimum) * 0.5, 0.0.xxx);
+        visible = visible &&
+            !OutsidePlane(center, extents, _SDFFrustumPlane0) &&
+            !OutsidePlane(center, extents, _SDFFrustumPlane1) &&
+            !OutsidePlane(center, extents, _SDFFrustumPlane2) &&
+            !OutsidePlane(center, extents, _SDFFrustumPlane3) &&
+            !OutsidePlane(center, extents, _SDFFrustumPlane4) &&
+            !OutsidePlane(center, extents, _SDFFrustumPlane5);
+    }
+
+    _SDFGroupVisible[groupIndex] = visible ? 1u : 0u;
+    GroupMemoryBarrierWithGroupSync();
+    [unroll] for (uint offset = 1u; offset < 64u; offset <<= 1u)
+    {
+        uint preceding = groupIndex >= offset ? _SDFGroupVisible[groupIndex - offset] : 0u;
+        GroupMemoryBarrierWithGroupSync();
+        _SDFGroupVisible[groupIndex] += preceding;
+        GroupMemoryBarrierWithGroupSync();
+    }
+    if (groupIndex == 63u)
+        InterlockedAdd(_SDFIndirectArguments[1], _SDFGroupVisible[63], _SDFGroupOutputBase);
+    GroupMemoryBarrierWithGroupSync();
+    if (visible)
+        _SDFVisibleModelIndices[_SDFGroupOutputBase + _SDFGroupVisible[groupIndex] - 1u] = modelIndex;
+}

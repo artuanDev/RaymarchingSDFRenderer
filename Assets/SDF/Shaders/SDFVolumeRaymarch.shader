@@ -1,3 +1,5 @@
+// Keep the generic evaluator as the sole compiled path; duplicated evaluator call graphs can
+// cause exponential backend inlining and UnityShaderCompiler timeouts on this shader.
 Shader "Hidden/SDF/URPVolumeRaymarch"
 {
     SubShader
@@ -52,6 +54,8 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
             StructuredBuffer<SDFShapeGpu> _SDFShapes;
             StructuredBuffer<SDFModifierGpu> _SDFModifiers;
             StructuredBuffer<SDFMaterialGpu> _SDFMaterials;
+            StructuredBuffer<uint> _SDFVisibleModelIndices;
+            TEXTURE2D_X(_SDFModelIdTexture);
 
             float4x4 _SDFViewProjection;
             float3 _SDFCameraPosition;
@@ -70,6 +74,8 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
             int _SDFPassMode;
             int _SDFPreviewMode;
             int _SDFModelCount;
+            int _SDFModelIdBase;
+            int _SDFUseVisibleModelIndices;
             int _SDFShadowCascadeCount;
             int _SDFReceiveUrpShadows;
             int _SDFSelfShadows;
@@ -126,6 +132,13 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
             struct FragmentOutput
             {
                 float4 color : SV_Target;
+                float depth : SV_Depth;
+            };
+
+            struct DepthNormalsOutput
+            {
+                float4 color : SV_Target0;
+                float modelId : SV_Target1;
                 float depth : SV_Depth;
             };
 
@@ -187,6 +200,8 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
             Varyings Vert(uint vertexId : SV_VertexID, uint instanceId : SV_InstanceID)
             {
                 uint modelIndex=_SDFPassMode==2?instanceId%(uint)max(_SDFModelCount,1):instanceId;
+                if(_SDFUseVisibleModelIndices!=0&&_SDFPassMode!=2)
+                    modelIndex=_SDFVisibleModelIndices[instanceId];
                 uint shadowCascade=_SDFPassMode==2?instanceId/(uint)max(_SDFModelCount,1):0u;
                 SDFModelGpu model = _SDFModels[modelIndex];
                 if (_SDFSceneView > 0.5 && model.BoundsMaxAndShapeCount.w < 0.0)
@@ -229,6 +244,16 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
                     output.positionCS = mul(_SDFViewProjection, float4(output.positionWS, 1.0));
                 output.modelIndex = modelIndex;
                 output.shadowCascade = shadowCascade;
+                return output;
+            }
+
+            Varyings VertFullscreen(uint vertexId : SV_VertexID)
+            {
+                Varyings output;
+                output.positionCS=GetFullScreenTriangleVertexPosition(vertexId);
+                output.positionWS=0.0.xxx;
+                output.modelIndex=0u;
+                output.shadowCascade=0u;
                 return output;
             }
 
@@ -867,7 +892,7 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
                 float depth;
             };
 
-            CameraTraceOutput ReuseDepthNormalPrepass(Varyings input)
+            CameraTraceOutput ReuseDepthNormalPrepass(Varyings input,bool validateModel)
             {
                 float2 screenUV=input.positionCS.xy/_ScaledScreenParams.xy;
                 float deviceDepth=SampleSceneDepth(screenUV);
@@ -896,7 +921,8 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
                 // The shared depth texture also contains regular opaque geometry and
                 // nearer SDF models. Accept the cached hit only when this model's
                 // field confirms the same surface at depth-buffer precision.
-                if(abs(EvaluateModel(hitPosition,input.modelIndex))>max(epsilon*2.0,_SDFSurfaceEpsilon*4.0)) discard;
+                if(validateModel&&abs(EvaluateModel(hitPosition,input.modelIndex))>
+                    max(epsilon*2.0,_SDFSurfaceEpsilon*4.0)) discard;
 
                 float3 normal=SampleSceneNormals(screenUV);
                 if(dot(normal,normal)<0.25)
@@ -913,7 +939,7 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
             CameraTraceOutput TraceCamera(Varyings input)
             {
                 if(_SDFPassMode==0&&_SDFReuseDepthNormalPrepass!=0)
-                    return ReuseDepthNormalPrepass(input);
+                    return ReuseDepthNormalPrepass(input,true);
                 SDFModelGpu model=_SDFModels[input.modelIndex];
                 float3 ro,rd;
                 if(_SDFOrthographic>0.5){rd=normalize(_SDFCameraForward);ro=input.positionWS-rd*dot(input.positionWS-_SDFCameraPosition,rd);}
@@ -953,16 +979,32 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
                 return output;
             }
 
-            FragmentOutput FragDepthNormals(Varyings input)
+            FragmentOutput FragColorResolved(Varyings input)
+            {
+                uint encodedModelId=(uint)(LOAD_TEXTURE2D_X(_SDFModelIdTexture,
+                    (uint2)input.positionCS.xy).x+0.5);
+                uint modelIdBase=(uint)_SDFModelIdBase;
+                if(encodedModelId<=modelIdBase||encodedModelId>modelIdBase+(uint)_SDFModelCount) discard;
+                input.modelIndex=encodedModelId-modelIdBase-1u;
+                CameraTraceOutput trace=ReuseDepthNormalPrepass(input,false);
+                FragmentOutput output;
+                output.color=float4(EvaluateSurface(trace.hitPosition,input.modelIndex,trace.normal,
+                    trace.viewDirection,trace.screenUV),1.0);
+                output.depth=trace.depth;
+                return output;
+            }
+
+            DepthNormalsOutput FragDepthNormals(Varyings input)
             {
                 CameraTraceOutput trace=TraceCamera(input);
-                FragmentOutput output;
+                DepthNormalsOutput output;
                 #if defined(_GBUFFER_NORMALS_OCT)
                     float2 octNormal=PackNormalOctQuadEncode(trace.normal);
                     output.color=float4(PackFloat2To888(saturate(octNormal*0.5+0.5)),0.0);
                 #else
                     output.color=float4(trace.normal,0.0);
                 #endif
+                output.modelId=(float)((uint)_SDFModelIdBase+input.modelIndex+1u);
                 output.depth=trace.depth;
                 return output;
             }
@@ -1043,6 +1085,32 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
             #pragma target 4.5
             #pragma vertex Vert
             #pragma fragment FragScreenSpaceShadow
+            ENDHLSL
+        }
+
+        Pass
+        {
+            Name "SDFColorResolve"
+            Cull Off
+            ZWrite On
+            ZTest Always
+            Blend Off
+
+            HLSLPROGRAM
+            #pragma target 4.5
+            #pragma skip_optimizations d3d11
+            #pragma vertex VertFullscreen
+            #pragma fragment FragColorResolved
+            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE
+            #pragma multi_compile _ _ADDITIONAL_LIGHTS
+            #pragma multi_compile_fragment _ _ADDITIONAL_LIGHT_SHADOWS
+            #pragma multi_compile_fragment _ _REFLECTION_PROBE_BLENDING
+            #pragma multi_compile_fragment _ _REFLECTION_PROBE_BOX_PROJECTION
+            #pragma multi_compile_fragment _ _REFLECTION_PROBE_ATLAS
+            #pragma multi_compile_fragment _ _SHADOWS_SOFT _SHADOWS_SOFT_LOW _SHADOWS_SOFT_MEDIUM _SHADOWS_SOFT_HIGH
+            #pragma multi_compile_fragment _ _SCREEN_SPACE_OCCLUSION
+            #pragma multi_compile_fragment _ _LIGHT_COOKIES
+            #pragma multi_compile _ _CLUSTER_LIGHT_LOOP
             ENDHLSL
         }
     }

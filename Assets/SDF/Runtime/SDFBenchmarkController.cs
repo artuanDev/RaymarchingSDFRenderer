@@ -92,6 +92,8 @@ namespace SdfRenderer
         [SerializeField, Range(1, 32)] private int m_MaterialCount = 8;
         [SerializeField, Min(0f)] private float m_AnimationSpeed = 1f;
         [SerializeField] private bool m_PreviewInEditMode;
+        [Header("GPU-resident rendering")]
+        [SerializeField] private bool m_UseGpuDrivenBatch = true;
         [Header("Automated measurement")]
         [SerializeField] private bool m_RunSweepOnStart;
         [SerializeField, Min(1)] private int m_SweepWarmupFrames = 60;
@@ -102,16 +104,20 @@ namespace SdfRenderer
         private SDFOperation[] m_Operations;
         private SDFModifier[] m_Modifiers;
         private bool m_SweepRunning;
+        private SDFBenchmarkGpuBatch m_GpuBatch;
 
         private int m_BuiltCount = -1;
         private int m_BuiltMaterialCount = -1;
         private float m_BuiltSpacing = -1f;
         private bool m_BuiltOperations;
         private bool m_BuiltModifiers;
+        private bool m_BuiltGpuDriven;
+        private bool m_BuiltGpuRequested;
         private SDFBenchmarkAnimation m_PreviousAnimation;
 
         public SDFBenchmarkAnimation Animation { get => m_Animation; set => m_Animation = value; }
         public bool PreviewInEditMode { get => m_PreviewInEditMode; set => m_PreviewInEditMode = value; }
+        public bool UseGpuDrivenBatch { get => m_UseGpuDrivenBatch; set { if (m_UseGpuDrivenBatch == value) return; m_UseGpuDrivenBatch = value; Rebuild(); } }
 
         private void OnEnable() => RebuildIfNeeded();
         private void Start()
@@ -171,9 +177,23 @@ namespace SdfRenderer
             };
             var timings = new FrameTiming[1];
             var report = new StringBuilder(1024);
+            using ProfilerRecorder animateTransformsRecorder = ProfilerRecorder.StartNew(
+                ProfilerCategory.Scripts, "SDF/Benchmark Animate Transforms");
+            using ProfilerRecorder animateOperationsRecorder = ProfilerRecorder.StartNew(
+                ProfilerCategory.Scripts, "SDF/Benchmark Animate Operations");
+            using ProfilerRecorder animateModifiersRecorder = ProfilerRecorder.StartNew(
+                ProfilerCategory.Scripts, "SDF/Benchmark Animate Modifiers");
+            using ProfilerRecorder refreshTransformsRecorder = ProfilerRecorder.StartNew(
+                ProfilerCategory.Scripts, "SDF/CPU Refresh Transforms");
+            using ProfilerRecorder refreshOperationsRecorder = ProfilerRecorder.StartNew(
+                ProfilerCategory.Scripts, "SDF/CPU Refresh Operations");
+            using ProfilerRecorder refreshModifiersRecorder = ProfilerRecorder.StartNew(
+                ProfilerCategory.Scripts, "SDF/CPU Refresh Modifiers");
+            using ProfilerRecorder uploadRecorder = ProfilerRecorder.StartNew(
+                ProfilerCategory.Scripts, "SDF/CPU GPU Buffer Upload");
             report.AppendLine($"SDF benchmark sweep: models={m_ModelCount}, operations={m_IncludeOperations}, " +
                 $"modifiers={m_IncludeModifiers}, resolution={Screen.width}x{Screen.height}");
-            report.AppendLine("Mode,FPS,CPU ms,GPU ms,Upload KiB/frame,Shapes/frame,Models/frame,Operations/frame,Modifiers/frame,Bounds/frame,Frames");
+            report.AppendLine("Mode,FPS,CPU ms,GPU ms,Animate transforms ms,Animate operations ms,Animate modifiers ms,Renderer refresh ms,Operation refresh ms,Modifier refresh ms,Upload marker ms,Upload KiB/frame,Shapes/frame,Models/frame,Operations/frame,Modifiers/frame,Bounds/frame,Frames");
 
             for (int modeIndex = 0; modeIndex < modes.Length; ++modeIndex)
             {
@@ -192,6 +212,13 @@ namespace SdfRenderer
                 long operationTotal = 0L;
                 long modifierTotal = 0L;
                 long boundsTotal = 0L;
+                long animateTransformsNanoseconds = 0L;
+                long animateOperationsNanoseconds = 0L;
+                long animateModifiersNanoseconds = 0L;
+                long refreshTransformsNanoseconds = 0L;
+                long refreshOperationsNanoseconds = 0L;
+                long refreshModifiersNanoseconds = 0L;
+                long uploadNanoseconds = 0L;
                 for (int frame = 0; frame < m_SweepSampleFrames; ++frame)
                 {
                     FrameTimingManager.CaptureFrameTimings();
@@ -214,6 +241,25 @@ namespace SdfRenderer
                     operationTotal += snapshot.OperationsRefreshed;
                     modifierTotal += snapshot.ModifiersRefreshed;
                     boundsTotal += snapshot.BoundsRefreshed;
+                    SDFBenchmarkAnimation measuredMode = modes[modeIndex];
+                    const SDFBenchmarkAnimation measuredTransformMask = SDFBenchmarkAnimation.Positions |
+                        SDFBenchmarkAnimation.Rotations | SDFBenchmarkAnimation.Scales;
+                    bool measuresTransforms = (measuredMode & measuredTransformMask) != 0;
+                    bool measuresOperations = (measuredMode & SDFBenchmarkAnimation.Operations) != 0;
+                    bool measuresModifiers = (measuredMode & SDFBenchmarkAnimation.Modifiers) != 0;
+                    if (measuresTransforms && animateTransformsRecorder.Valid)
+                        animateTransformsNanoseconds += animateTransformsRecorder.LastValue;
+                    if (measuresOperations && animateOperationsRecorder.Valid)
+                        animateOperationsNanoseconds += animateOperationsRecorder.LastValue;
+                    if (measuresModifiers && animateModifiersRecorder.Valid)
+                        animateModifiersNanoseconds += animateModifiersRecorder.LastValue;
+                    if ((measuresTransforms || measuresOperations || measuresModifiers) && refreshTransformsRecorder.Valid)
+                        refreshTransformsNanoseconds += refreshTransformsRecorder.LastValue;
+                    if (measuresOperations && refreshOperationsRecorder.Valid)
+                        refreshOperationsNanoseconds += refreshOperationsRecorder.LastValue;
+                    if (measuresModifiers && refreshModifiersRecorder.Valid)
+                        refreshModifiersNanoseconds += refreshModifiersRecorder.LastValue;
+                    if (uploadRecorder.Valid) uploadNanoseconds += uploadRecorder.LastValue;
                 }
                 double elapsed = Math.Max(0.000001, Time.realtimeSinceStartupAsDouble - start);
                 double fps = m_SweepSampleFrames / elapsed;
@@ -221,6 +267,13 @@ namespace SdfRenderer
                 double gpu = gpuSamples > 0 ? gpuTotal / gpuSamples : 0.0;
                 double samples = m_SweepSampleFrames;
                 report.AppendLine($"{labels[modeIndex]},{fps:F2},{cpu:F3},{gpu:F3}," +
+                    $"{animateTransformsNanoseconds / samples * 0.000001:F3}," +
+                    $"{animateOperationsNanoseconds / samples * 0.000001:F3}," +
+                    $"{animateModifiersNanoseconds / samples * 0.000001:F3}," +
+                    $"{refreshTransformsNanoseconds / samples * 0.000001:F3}," +
+                    $"{refreshOperationsNanoseconds / samples * 0.000001:F3}," +
+                    $"{refreshModifiersNanoseconds / samples * 0.000001:F3}," +
+                    $"{uploadNanoseconds / samples * 0.000001:F3}," +
                     $"{uploadTotal / samples / 1024.0:F2},{shapeTotal / samples:F2},{modelTotal / samples:F2}," +
                     $"{operationTotal / samples:F2},{modifierTotal / samples:F2},{boundsTotal / samples:F2}," +
                     $"{m_SweepSampleFrames}");
@@ -234,6 +287,17 @@ namespace SdfRenderer
         private void Update()
         {
             RebuildIfNeeded();
+            if (m_GpuBatch != null)
+            {
+                bool canAnimateGpu = Application.isPlaying || m_PreviewInEditMode;
+                SDFBenchmarkAnimation gpuAnimation = canAnimateGpu ? m_Animation : SDFBenchmarkAnimation.None;
+                float gpuTime = gpuAnimation != SDFBenchmarkAnimation.None
+                    ? (Application.isPlaying ? Time.time : Time.realtimeSinceStartup) * m_AnimationSpeed : 0f;
+                m_GpuBatch.SetState(gpuTime, gpuAnimation, m_Spacing, m_MaterialCount,
+                    m_IncludeOperations, m_IncludeModifiers);
+                m_PreviousAnimation = gpuAnimation;
+                return;
+            }
             if (m_GeneratedRoot == null || !m_Transforms.isCreated)
                 return;
             bool canAnimate = Application.isPlaying || m_PreviewInEditMode;
@@ -335,6 +399,19 @@ namespace SdfRenderer
         public void Rebuild()
         {
             DestroyGenerated();
+            if (m_UseGpuDrivenBatch && SystemInfo.supportsComputeShaders)
+            {
+                ComputeShader updateShader = Resources.Load<ComputeShader>("SDFBenchmarkGpuUpdate");
+                if (updateShader != null)
+                {
+                    m_GpuBatch = new SDFBenchmarkGpuBatch(m_ModelCount, m_MaterialCount, m_Spacing,
+                        m_IncludeOperations, m_IncludeModifiers, updateShader);
+                    SDFGpuSceneBatchRegistry.Register(m_GpuBatch);
+                    RecordBuiltConfiguration(true);
+                    return;
+                }
+                Debug.LogWarning("SDF GPU benchmark update shader is missing; using the component fallback.", this);
+            }
             GameObject root = new GameObject("Generated SDF Benchmark");
             root.hideFlags = HideFlags.DontSave;
             root.transform.SetParent(transform, false);
@@ -378,11 +455,18 @@ namespace SdfRenderer
                     m_Transforms.Add(modelObject.transform);
                 }
             }
+            RecordBuiltConfiguration(false);
+        }
+
+        private void RecordBuiltConfiguration(bool gpuDriven)
+        {
             m_BuiltCount = m_ModelCount;
             m_BuiltMaterialCount = m_MaterialCount;
             m_BuiltSpacing = m_Spacing;
             m_BuiltOperations = m_IncludeOperations;
             m_BuiltModifiers = m_IncludeModifiers;
+            m_BuiltGpuDriven = gpuDriven;
+            m_BuiltGpuRequested = m_UseGpuDrivenBatch;
             m_PreviousAnimation = SDFBenchmarkAnimation.None;
         }
 
@@ -393,12 +477,19 @@ namespace SdfRenderer
                 !Mathf.Approximately(m_BuiltSpacing, m_Spacing) ||
                 m_BuiltOperations != m_IncludeOperations ||
                 m_BuiltModifiers != m_IncludeModifiers ||
-                m_GeneratedRoot == null)
+                m_BuiltGpuRequested != m_UseGpuDrivenBatch ||
+                (m_BuiltGpuDriven ? m_GpuBatch == null : m_GeneratedRoot == null))
                 Rebuild();
         }
 
         private void DestroyGenerated()
         {
+            if (m_GpuBatch != null)
+            {
+                SDFGpuSceneBatchRegistry.Unregister(m_GpuBatch);
+                m_GpuBatch.Dispose();
+                m_GpuBatch = null;
+            }
             if (m_Transforms.isCreated) m_Transforms.Dispose();
             if (m_GeneratedRoot != null)
             {
@@ -414,6 +505,8 @@ namespace SdfRenderer
             m_BuiltSpacing = -1f;
             m_BuiltOperations = false;
             m_BuiltModifiers = false;
+            m_BuiltGpuDriven = false;
+            m_BuiltGpuRequested = false;
             m_PreviousAnimation = SDFBenchmarkAnimation.None;
         }
 

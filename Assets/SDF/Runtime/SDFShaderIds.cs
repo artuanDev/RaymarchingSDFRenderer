@@ -22,6 +22,10 @@ namespace SdfRenderer
         internal static readonly int NormalEpsilon = Shader.PropertyToID("_SDFNormalEpsilon");
         internal static readonly int PixelTolerance = Shader.PropertyToID("_SDFPixelTolerance");
         internal static readonly int ReuseDepthNormalPrepass = Shader.PropertyToID("_SDFReuseDepthNormalPrepass");
+        internal static readonly int ModelIdTexture = Shader.PropertyToID("_SDFModelIdTexture");
+        internal static readonly int ModelIdBase = Shader.PropertyToID("_SDFModelIdBase");
+        internal static readonly int VisibleModelIndices = Shader.PropertyToID("_SDFVisibleModelIndices");
+        internal static readonly int UseVisibleModelIndices = Shader.PropertyToID("_SDFUseVisibleModelIndices");
         internal static readonly int PassMode = Shader.PropertyToID("_SDFPassMode");
         internal static readonly int PreviewMode = Shader.PropertyToID("_SDFPreviewMode");
         internal static readonly int ModelCount = Shader.PropertyToID("_SDFModelCount");

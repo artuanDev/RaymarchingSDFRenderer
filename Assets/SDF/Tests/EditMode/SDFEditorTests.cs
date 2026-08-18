@@ -50,10 +50,32 @@ namespace SdfRenderer.Tests
         {
             Shader shader = Shader.Find("Hidden/SDF/URPVolumeRaymarch");
             Assert.That(shader, Is.Not.Null);
+            Material material = new Material(shader);
+            try
+            {
+                Assert.That(material.FindPass("SDFDepthNormals"), Is.GreaterThanOrEqualTo(0));
+                Assert.That(material.FindPass("SDFColorResolve"), Is.GreaterThanOrEqualTo(0));
+            }
+            finally
+            {
+                Object.DestroyImmediate(material);
+            }
             var errors = ShaderUtil.GetShaderMessages(shader)
                 .Where(message => message.severity.ToString() == "Error")
                 .ToArray();
             Assert.That(errors, Is.Empty, string.Join("\n", errors.Select(error => error.message)));
+        }
+
+        [Test]
+        public void GpuResidentComputeKernelsArePackaged()
+        {
+            ComputeShader update = Resources.Load<ComputeShader>("SDFBenchmarkGpuUpdate");
+            Assert.That(update, Is.Not.Null);
+            Assert.That(update.HasKernel("UpdateBenchmark"), Is.True);
+            ComputeShader culling = Resources.Load<ComputeShader>("SDFModelCull");
+            Assert.That(culling, Is.Not.Null);
+            Assert.That(culling.HasKernel("ClearArguments"), Is.True);
+            Assert.That(culling.HasKernel("CullModels"), Is.True);
         }
 
         [Test]
