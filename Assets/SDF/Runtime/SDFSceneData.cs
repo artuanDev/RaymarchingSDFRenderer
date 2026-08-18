@@ -60,6 +60,7 @@ namespace SdfRenderer
         }
 
         private static readonly ProfilerMarker CompileMarker = new ProfilerMarker("SDF/CPU Compile Scene");
+        private static readonly ProfilerMarker ShapeMarker = new ProfilerMarker("SDF/CPU Refresh Shapes");
         private static readonly ProfilerMarker TransformMarker = new ProfilerMarker("SDF/CPU Refresh Transforms");
         private static readonly ProfilerMarker OperationMarker = new ProfilerMarker("SDF/CPU Refresh Operations");
         private static readonly ProfilerMarker ModifierMarker = new ProfilerMarker("SDF/CPU Refresh Modifiers");
@@ -69,6 +70,12 @@ namespace SdfRenderer
         {
             public SDFShape Shape;
             public SDFOperation Operation;
+            public SDFCustomMaterial CustomMaterial;
+            public uint ShapeVersion;
+            public uint OperationVersion;
+            public uint CustomMaterialVersion;
+            public int ModifierStart;
+            public int ModifierCount;
             public Bounds BaseLocalBounds;
             public Bounds LocalBounds;
             public SDFOperationType OperationType;
@@ -92,7 +99,12 @@ namespace SdfRenderer
             public Vector3 LocalExtents;
             public Vector3 ClipCenter;
             public Vector3 ClipExtents;
+            public Vector4 LocalToWorld0;
+            public Vector4 LocalToWorld1;
+            public Vector4 LocalToWorld2;
             public float Smoothness;
+            public float DistanceScale;
+            public float MaximumScale;
             public int CanUseBoundsDistance;
         }
 
@@ -107,7 +119,7 @@ namespace SdfRenderer
         [BurstCompile]
         private struct PackShapesJob : IJobParallelForTransform
         {
-            [ReadOnly] public NativeArray<ShapeTransformInput> Inputs;
+            public NativeArray<ShapeTransformInput> Inputs;
             public NativeArray<ShapeGpu> Shapes;
 
             public void Execute(int index, TransformAccess transform)
@@ -116,6 +128,9 @@ namespace SdfRenderer
                 ShapeGpu shape = Shapes[index];
                 Matrix4x4 localToWorld = transform.localToWorldMatrix;
                 Matrix4x4 worldToLocal = transform.worldToLocalMatrix;
+                input.LocalToWorld0 = new Vector4(localToWorld.m00, localToWorld.m01, localToWorld.m02, localToWorld.m03);
+                input.LocalToWorld1 = new Vector4(localToWorld.m10, localToWorld.m11, localToWorld.m12, localToWorld.m13);
+                input.LocalToWorld2 = new Vector4(localToWorld.m20, localToWorld.m21, localToWorld.m22, localToWorld.m23);
 
                 shape.WorldToLocal0 = new Vector4(worldToLocal.m00, worldToLocal.m01, worldToLocal.m02, worldToLocal.m03);
                 shape.WorldToLocal1 = new Vector4(worldToLocal.m10, worldToLocal.m11, worldToLocal.m12, worldToLocal.m13);
@@ -134,6 +149,8 @@ namespace SdfRenderer
                 worldExtents += Vector3.one * 0.002f;
 
                 GetScaleRange(localToWorld, worldToLocal, out float distanceScale, out float maximumScale);
+                input.DistanceScale = distanceScale;
+                input.MaximumScale = maximumScale;
 
                 shape.TypeOperationSmoothModifierStart.z = input.Smoothness * distanceScale;
                 shape.MaterialModifierCountDistanceScaleBoundsScale.z = distanceScale;
@@ -141,6 +158,7 @@ namespace SdfRenderer
                     ? math.saturate(distanceScale / maximumScale) : 0f;
                 shape.BoundsMin = worldCenter - worldExtents;
                 shape.BoundsMax = worldCenter + worldExtents;
+                Inputs[index] = input;
                 Shapes[index] = shape;
             }
 
@@ -197,7 +215,7 @@ namespace SdfRenderer
         {
             [ReadOnly] public NativeArray<int> ModifiedShapeIndices;
             [ReadOnly] public NativeArray<ModifierGpu> Modifiers;
-            [ReadOnly] public NativeArray<ShapeGpu> Shapes;
+            [NativeDisableParallelForRestriction] public NativeArray<ShapeGpu> Shapes;
             [NativeDisableParallelForRestriction] public NativeArray<ShapeTransformInput> Inputs;
 
             public void Execute(int index)
@@ -260,7 +278,21 @@ namespace SdfRenderer
                 input.LocalCenter = center;
                 input.LocalExtents = extents;
                 input.CanUseBoundsDistance = canUseBoundsDistance ? 1 : 0;
+                ShapeGpu updatedShape = shape;
+                updatedShape.MaterialModifierCountDistanceScaleBoundsScale.w = canUseBoundsDistance
+                    ? math.saturate(input.DistanceScale / math.max(0.000001f, input.MaximumScale)) : 0f;
+                float3 worldCenter = new float3(
+                    math.dot(new float3(input.LocalToWorld0.x, input.LocalToWorld0.y, input.LocalToWorld0.z), center) + input.LocalToWorld0.w,
+                    math.dot(new float3(input.LocalToWorld1.x, input.LocalToWorld1.y, input.LocalToWorld1.z), center) + input.LocalToWorld1.w,
+                    math.dot(new float3(input.LocalToWorld2.x, input.LocalToWorld2.y, input.LocalToWorld2.z), center) + input.LocalToWorld2.w);
+                float3 worldExtents = new float3(
+                    math.abs(input.LocalToWorld0.x) * extents.x + math.abs(input.LocalToWorld0.y) * extents.y + math.abs(input.LocalToWorld0.z) * extents.z,
+                    math.abs(input.LocalToWorld1.x) * extents.x + math.abs(input.LocalToWorld1.y) * extents.y + math.abs(input.LocalToWorld1.z) * extents.z,
+                    math.abs(input.LocalToWorld2.x) * extents.x + math.abs(input.LocalToWorld2.y) * extents.y + math.abs(input.LocalToWorld2.z) * extents.z) + 0.002f;
+                updatedShape.BoundsMin = new Vector4(worldCenter.x - worldExtents.x, worldCenter.y - worldExtents.y, worldCenter.z - worldExtents.z, 0f);
+                updatedShape.BoundsMax = new Vector4(worldCenter.x + worldExtents.x, worldCenter.y + worldExtents.y, worldCenter.z + worldExtents.z, 0f);
                 Inputs[shapeIndex] = input;
+                Shapes[shapeIndex] = updatedShape;
             }
         }
 
@@ -323,6 +355,9 @@ namespace SdfRenderer
         private readonly List<SDFShape> m_ShapeScratch = new List<SDFShape>(32);
         private readonly List<SDFModifier> m_ModifierScratch = new List<SDFModifier>(8);
         private readonly List<SDFModifier> m_ModifierBindings = new List<SDFModifier>(128);
+        private readonly List<uint> m_ModifierVersions = new List<uint>(128);
+        private readonly List<int> m_ModifierShapeIndices = new List<int>(128);
+        private readonly List<int> m_ChangedModifiedShapeIndices = new List<int>(128);
         private readonly List<ShapeBinding> m_ShapeBindings = new List<ShapeBinding>(256);
         private readonly List<ModelBinding> m_ModelBindings = new List<ModelBinding>(128);
         private readonly List<int> m_OperationShapeIndices = new List<int>(128);
@@ -377,9 +412,16 @@ namespace SdfRenderer
                     Compile();
             }
             else if ((dirty & ~(SDFDirtyFlags.Materials | SDFDirtyFlags.Settings | SDFDirtyFlags.Transforms |
-                SDFDirtyFlags.Operations | SDFDirtyFlags.Modifiers)) == 0)
+                SDFDirtyFlags.Operations | SDFDirtyFlags.Modifiers | SDFDirtyFlags.Shapes | SDFDirtyFlags.Bounds)) == 0)
             {
-                if ((dirty & SDFDirtyFlags.Materials) != 0 && m_Materials.Count > 0)
+                bool shapesChanged = (dirty & (SDFDirtyFlags.Shapes | SDFDirtyFlags.Bounds)) != 0;
+                bool materialSetChanged = false;
+                if (shapesChanged)
+                {
+                    using (ShapeMarker.Auto())
+                        materialSetChanged = RefreshShapes();
+                }
+                if (((dirty & SDFDirtyFlags.Materials) != 0 || materialSetChanged) && m_Materials.Count > 0)
                     RefreshMaterials();
                 bool modifiersChanged = (dirty & SDFDirtyFlags.Modifiers) != 0;
                 bool operationsChanged = (dirty & SDFDirtyFlags.Operations) != 0;
@@ -397,7 +439,12 @@ namespace SdfRenderer
                 if (((dirty & SDFDirtyFlags.Transforms) != 0 || modifiersChanged || operationsChanged) && m_Shapes.Count > 0)
                 {
                     using (TransformMarker.Auto())
-                        RefreshDynamicData((dirty & SDFDirtyFlags.Transforms) != 0 || modifiersChanged, modifierBoundsHandle);
+                        RefreshDynamicData((dirty & SDFDirtyFlags.Transforms) != 0, modifierBoundsHandle);
+                }
+                else if (shapesChanged && m_Shapes.Count > 0)
+                {
+                    using (TransformMarker.Auto())
+                        RefreshDynamicData(false, modifierBoundsHandle);
                 }
             }
             else
@@ -431,6 +478,9 @@ namespace SdfRenderer
             m_ShapeBindings.Clear();
             m_ModelBindings.Clear();
             m_ModifierBindings.Clear();
+            m_ModifierVersions.Clear();
+            m_ModifierShapeIndices.Clear();
+            m_ChangedModifiedShapeIndices.Clear();
             m_OperationShapeIndices.Clear();
             m_ModifiedShapeIndices.Clear();
 
@@ -474,6 +524,13 @@ namespace SdfRenderer
                 if (m_Shapes.Count > 0) ShapeBuffer.SetData(m_Shapes);
                 if (m_Modifiers.Count > 0) ModifierBuffer.SetData(m_Modifiers);
                 if (m_Materials.Count > 0) m_MaterialBuffer.SetData(m_Materials);
+                SDFPerformanceMetrics.Record(
+                    (long)m_Models.Count * Marshal.SizeOf<ModelGpu>() +
+                    (long)m_Shapes.Count * Marshal.SizeOf<ShapeGpu>() +
+                    (long)m_Modifiers.Count * Marshal.SizeOf<ModifierGpu>() +
+                    (long)m_Materials.Count * Marshal.SizeOf<MaterialGpu>(),
+                    m_Shapes.Count, m_Models.Count, m_OperationShapeIndices.Count,
+                    m_Modifiers.Count, m_Materials.Count, m_Shapes.Count);
             }
         }
 
@@ -524,6 +581,8 @@ namespace SdfRenderer
                 ExpandBoundsForModifier(ref localBounds, modifier);
                 m_Modifiers.Add(new ModifierGpu { TypeAxesAmount = modifier.PackA(), Vector = modifier.PackB(), Count = modifier.PackC() });
                 m_ModifierBindings.Add(modifier);
+                m_ModifierVersions.Add(modifier.DataVersion);
+                m_ModifierShapeIndices.Add(shapeIndex);
             }
             if (infiniteRepeat)
                 localBounds = shape.ClipBounds;
@@ -559,6 +618,12 @@ namespace SdfRenderer
             {
                 Shape = shape,
                 Operation = operation,
+                CustomMaterial = customMaterial,
+                ShapeVersion = shape.DataVersion,
+                OperationVersion = operation != null ? operation.DataVersion : 0,
+                CustomMaterialVersion = customMaterial != null ? customMaterial.DataVersion : 0,
+                ModifierStart = modifierStart,
+                ModifierCount = m_Modifiers.Count - modifierStart,
                 BaseLocalBounds = baseLocalBounds,
                 LocalBounds = localBounds,
                 OperationType = operationType,
@@ -658,16 +723,101 @@ namespace SdfRenderer
             {
                 EnsureBuffer(ref m_MaterialBuffer, ref m_MaterialCapacity, m_Materials.Count, Marshal.SizeOf<MaterialGpu>(), "SDF Materials");
                 m_MaterialBuffer.SetData(m_Materials);
+                SDFPerformanceMetrics.Record((long)m_Materials.Count * Marshal.SizeOf<MaterialGpu>(),
+                    materials: m_Materials.Count);
             }
+        }
+
+        private bool RefreshShapes()
+        {
+            bool materialSetChanged = false;
+            int changedCount = 0;
+            for (int i = 0; i < m_ShapeBindings.Count; ++i)
+            {
+                ShapeBinding binding = m_ShapeBindings[i];
+                SDFShape component = binding.Shape;
+                if (component == null)
+                    continue;
+                uint shapeVersion = component.DataVersion;
+                uint customMaterialVersion = binding.CustomMaterial != null
+                    ? binding.CustomMaterial.DataVersion : 0;
+                if (binding.ShapeVersion == shapeVersion &&
+                    binding.CustomMaterialVersion == customMaterialVersion)
+                    continue;
+                ++changedCount;
+                binding.ShapeVersion = shapeVersion;
+                binding.CustomMaterialVersion = customMaterialVersion;
+                Bounds baseLocalBounds = component.GetLocalBounds();
+                Bounds localBounds = baseLocalBounds;
+                bool canUseBoundsDistance = true;
+                bool infiniteRepeat = false;
+                int modifierEnd = binding.ModifierStart + binding.ModifierCount;
+                for (int modifierIndex = binding.ModifierStart; modifierIndex < modifierEnd; ++modifierIndex)
+                {
+                    SDFModifier modifier = m_ModifierBindings[modifierIndex];
+                    if (modifier == null || !modifier.isActiveAndEnabled)
+                        continue;
+                    canUseBoundsDistance &= !modifier.InvalidatesBoundsDistance;
+                    infiniteRepeat |= modifier.Type == SDFModifierType.InfiniteRepeat;
+                    ExpandBoundsForModifier(ref localBounds, modifier);
+                }
+                if (infiniteRepeat)
+                    localBounds = component.ClipBounds;
+
+                binding.BaseLocalBounds = baseLocalBounds;
+                binding.LocalBounds = localBounds;
+                binding.CanUseBoundsDistance = canUseBoundsDistance;
+                m_ShapeBindings[i] = binding;
+
+                ShapeTransformInput input = m_ShapeTransformInputs[i];
+                input.BaseLocalCenter = baseLocalBounds.center;
+                input.BaseLocalExtents = baseLocalBounds.extents;
+                input.LocalCenter = localBounds.center;
+                input.LocalExtents = localBounds.extents;
+                input.ClipCenter = component.ClipBounds.center;
+                input.ClipExtents = component.ClipBounds.extents;
+                input.CanUseBoundsDistance = canUseBoundsDistance ? 1 : 0;
+                m_ShapeTransformInputs[i] = input;
+
+                SDFCustomMaterial customMaterial = binding.CustomMaterial;
+                SDFMaterialAsset material = customMaterial != null && customMaterial.isActiveAndEnabled && customMaterial.Material != null
+                    ? customMaterial.Material : component.Material;
+                int previousMaterialCount = m_Materials.Count;
+                int materialIndex = GetMaterialIndex(material);
+                materialSetChanged |= m_Materials.Count != previousMaterialCount;
+                component.GetPackedParameters(out Vector4 p0, out Vector4 p1, out Vector4 p2, out Vector4 p3);
+                ShapeGpu shape = m_DynamicShapes[i];
+                shape.Parameters0 = p0;
+                shape.Parameters1 = p1;
+                shape.Parameters2 = p2;
+                shape.Parameters3 = p3;
+                shape.TypeOperationSmoothModifierStart.x = (float)component.ShapeType;
+                shape.MaterialModifierCountDistanceScaleBoundsScale.x = materialIndex;
+                Bounds worldBounds = TransformBounds(component.transform.localToWorldMatrix, localBounds);
+                worldBounds.Expand(0.004f);
+                shape.BoundsMin = worldBounds.min;
+                shape.BoundsMax = worldBounds.max;
+                m_DynamicShapes[i] = shape;
+                m_Shapes[i] = shape;
+            }
+            if (changedCount > 0)
+                SDFPerformanceMetrics.Record(shapes: changedCount, bounds: changedCount);
+            return materialSetChanged;
         }
 
         private void RefreshOperations()
         {
+            int changedCount = 0;
             for (int operationIndex = 0; operationIndex < m_OperationShapeIndices.Count; ++operationIndex)
             {
                 int i = m_OperationShapeIndices[operationIndex];
                 ShapeBinding binding = m_ShapeBindings[i];
                 SDFOperation operation = binding.Operation;
+                uint operationVersion = operation != null ? operation.DataVersion : 0;
+                if (binding.OperationVersion == operationVersion)
+                    continue;
+                ++changedCount;
+                binding.OperationVersion = operationVersion;
                 bool active = operation != null && operation.isActiveAndEnabled;
                 binding.OperationType = active ? operation.Type : SDFOperationType.Union;
                 binding.Smoothness = active ? operation.Smoothness : 0f;
@@ -682,15 +832,24 @@ namespace SdfRenderer
                 shape.TypeOperationSmoothModifierStart.z = binding.Smoothness * shape.MaterialModifierCountDistanceScaleBoundsScale.z;
                 m_DynamicShapes[i] = shape;
             }
+            if (changedCount > 0)
+                SDFPerformanceMetrics.Record(operations: changedCount);
         }
 
         private JobHandle RefreshModifiers()
         {
+            m_ChangedModifiedShapeIndices.Clear();
+            int changedModifierCount = 0;
             for (int i = 0; i < m_ModifierBindings.Count; ++i)
             {
                 SDFModifier modifier = m_ModifierBindings[i];
                 if (modifier == null)
                     continue;
+                uint version = modifier.DataVersion;
+                if (m_ModifierVersions[i] == version)
+                    continue;
+                ++changedModifierCount;
+                m_ModifierVersions[i] = version;
                 m_Modifiers[i] = new ModifierGpu
                 {
                     TypeAxesAmount = modifier.PackA(),
@@ -698,15 +857,23 @@ namespace SdfRenderer
                     Count = modifier.PackC()
                 };
                 m_DynamicModifiers[i] = m_Modifiers[i];
+                int shapeIndex = m_ModifierShapeIndices[i];
+                if (m_ChangedModifiedShapeIndices.Count == 0 ||
+                    m_ChangedModifiedShapeIndices[m_ChangedModifiedShapeIndices.Count - 1] != shapeIndex)
+                    m_ChangedModifiedShapeIndices.Add(shapeIndex);
             }
 
             using (UploadMarker.Auto())
             {
                 m_ModifierBufferIndex = (m_ModifierBufferIndex + 1) % DynamicBufferCount;
                 if (m_Modifiers.Count > 0) ModifierBuffer.SetData(m_Modifiers);
+                SDFPerformanceMetrics.Record((long)m_Modifiers.Count * Marshal.SizeOf<ModifierGpu>(),
+                    modifiers: changedModifierCount, bounds: m_ChangedModifiedShapeIndices.Count);
             }
-            if (m_DynamicModifiedShapeIndices.Length == 0)
+            if (m_ChangedModifiedShapeIndices.Count == 0)
                 return default;
+            for (int i = 0; i < m_ChangedModifiedShapeIndices.Count; ++i)
+                m_DynamicModifiedShapeIndices[i] = m_ChangedModifiedShapeIndices[i];
             PackModifierBoundsJob boundsJob = new PackModifierBoundsJob
             {
                 ModifiedShapeIndices = m_DynamicModifiedShapeIndices,
@@ -714,7 +881,7 @@ namespace SdfRenderer
                 Shapes = m_DynamicShapes,
                 Inputs = m_ShapeTransformInputs
             };
-            return boundsJob.Schedule(m_DynamicModifiedShapeIndices.Length, 64);
+            return boundsJob.Schedule(m_ChangedModifiedShapeIndices.Count, 64);
         }
 
         private void RefreshDynamicData(bool packShapes, JobHandle dependency)
@@ -743,6 +910,12 @@ namespace SdfRenderer
                 m_DynamicBufferIndex = (m_DynamicBufferIndex + 1) % DynamicBufferCount;
                 ShapeBuffer.SetData(m_DynamicShapes);
                 ModelBuffer.SetData(m_DynamicModels);
+                SDFPerformanceMetrics.Record(
+                    (long)m_DynamicShapes.Length * Marshal.SizeOf<ShapeGpu>() +
+                    (long)m_DynamicModels.Length * Marshal.SizeOf<ModelGpu>(),
+                    shapes: packShapes ? m_DynamicShapes.Length : 0,
+                    models: m_DynamicModels.Length,
+                    bounds: packShapes ? m_DynamicShapes.Length : 0);
             }
         }
 
@@ -764,6 +937,9 @@ namespace SdfRenderer
             {
                 ShapeBinding binding = m_ShapeBindings[i];
                 m_ShapeTransforms.Add(binding.Shape.transform);
+                Matrix4x4 localToWorld = binding.Shape.transform.localToWorldMatrix;
+                float distanceScale = m_Shapes[i].MaterialModifierCountDistanceScaleBoundsScale.z;
+                float boundsScale = m_Shapes[i].MaterialModifierCountDistanceScaleBoundsScale.w;
                 m_ShapeTransformInputs[i] = new ShapeTransformInput
                 {
                     BaseLocalCenter = binding.BaseLocalBounds.center,
@@ -772,7 +948,14 @@ namespace SdfRenderer
                     LocalExtents = binding.LocalBounds.extents,
                     ClipCenter = binding.Shape.ClipBounds.center,
                     ClipExtents = binding.Shape.ClipBounds.extents,
+                    LocalToWorld0 = new Vector4(localToWorld.m00, localToWorld.m01, localToWorld.m02, localToWorld.m03),
+                    LocalToWorld1 = new Vector4(localToWorld.m10, localToWorld.m11, localToWorld.m12, localToWorld.m13),
+                    LocalToWorld2 = new Vector4(localToWorld.m20, localToWorld.m21, localToWorld.m22, localToWorld.m23),
                     Smoothness = binding.Smoothness,
+                    DistanceScale = distanceScale,
+                    MaximumScale = boundsScale > 0f
+                        ? distanceScale / boundsScale
+                        : binding.Shape.GetMaximumScale(),
                     CanUseBoundsDistance = binding.CanUseBoundsDistance ? 1 : 0
                 };
                 m_DynamicShapes[i] = m_Shapes[i];
@@ -916,6 +1099,77 @@ namespace SdfRenderer
                 buffers[i]?.Release();
                 buffers[i] = null;
             }
+        }
+    }
+
+    public readonly struct SDFPerformanceSnapshot
+    {
+        public readonly long UploadBytes;
+        public readonly int ShapesRefreshed;
+        public readonly int ModelsRefreshed;
+        public readonly int OperationsRefreshed;
+        public readonly int ModifiersRefreshed;
+        public readonly int MaterialsRefreshed;
+        public readonly int BoundsRefreshed;
+
+        internal SDFPerformanceSnapshot(long uploadBytes, int shapesRefreshed, int modelsRefreshed,
+            int operationsRefreshed, int modifiersRefreshed, int materialsRefreshed, int boundsRefreshed)
+        {
+            UploadBytes = uploadBytes;
+            ShapesRefreshed = shapesRefreshed;
+            ModelsRefreshed = modelsRefreshed;
+            OperationsRefreshed = operationsRefreshed;
+            ModifiersRefreshed = modifiersRefreshed;
+            MaterialsRefreshed = materialsRefreshed;
+            BoundsRefreshed = boundsRefreshed;
+        }
+    }
+
+    /// <summary>Allocation-free per-frame counters for profiling renderer invalidation and uploads.</summary>
+    public static class SDFPerformanceMetrics
+    {
+        private static int s_Frame = int.MinValue;
+        private static long s_UploadBytes;
+        private static int s_ShapesRefreshed;
+        private static int s_ModelsRefreshed;
+        private static int s_OperationsRefreshed;
+        private static int s_ModifiersRefreshed;
+        private static int s_MaterialsRefreshed;
+        private static int s_BoundsRefreshed;
+
+        public static SDFPerformanceSnapshot CurrentFrame
+        {
+            get
+            {
+                if (s_Frame != Time.frameCount)
+                    return default;
+                return new SDFPerformanceSnapshot(s_UploadBytes, s_ShapesRefreshed, s_ModelsRefreshed,
+                    s_OperationsRefreshed, s_ModifiersRefreshed, s_MaterialsRefreshed, s_BoundsRefreshed);
+            }
+        }
+
+        internal static void Record(long uploadBytes = 0L, int shapes = 0, int models = 0,
+            int operations = 0, int modifiers = 0, int materials = 0, int bounds = 0)
+        {
+            int frame = Time.frameCount;
+            if (s_Frame != frame)
+            {
+                s_Frame = frame;
+                s_UploadBytes = 0L;
+                s_ShapesRefreshed = 0;
+                s_ModelsRefreshed = 0;
+                s_OperationsRefreshed = 0;
+                s_ModifiersRefreshed = 0;
+                s_MaterialsRefreshed = 0;
+                s_BoundsRefreshed = 0;
+            }
+            s_UploadBytes += uploadBytes;
+            s_ShapesRefreshed += shapes;
+            s_ModelsRefreshed += models;
+            s_OperationsRefreshed += operations;
+            s_ModifiersRefreshed += modifiers;
+            s_MaterialsRefreshed += materials;
+            s_BoundsRefreshed += bounds;
         }
     }
 }

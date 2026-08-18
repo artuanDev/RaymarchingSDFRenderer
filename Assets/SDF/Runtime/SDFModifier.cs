@@ -10,6 +10,9 @@ namespace SdfRenderer
         [SerializeField] private Vector3 m_Vector = Vector3.one;
         [SerializeField] private Vector3Int m_Count = Vector3Int.one;
         [SerializeField] private float m_Amount = 0.1f;
+        [System.NonSerialized] private uint m_DataVersion;
+
+        internal uint DataVersion => m_DataVersion;
 
         public SDFModifierType Type { get => m_Type; set { if (m_Type == value) return; m_Type = value; MarkDirty(); } }
         public SDFModifierAxes Axes { get => m_Axes; set { if (m_Axes == value) return; m_Axes = value; MarkDirty(); } }
@@ -24,9 +27,9 @@ namespace SdfRenderer
         internal Vector4 PackB() => new Vector4(m_Vector.x, m_Vector.y, m_Vector.z, 0f);
         internal Vector4 PackC() => new Vector4(Mathf.Max(0, m_Count.x), Mathf.Max(0, m_Count.y), Mathf.Max(0, m_Count.z), 0f);
 
-        private void OnEnable() => SDFSceneRegistry.MarkDirty(SDFDirtyFlags.Topology | SDFDirtyFlags.Modifiers);
-        private void OnDisable() => SDFSceneRegistry.MarkDirty(SDFDirtyFlags.Topology | SDFDirtyFlags.Modifiers);
-        private void OnDestroy() => SDFSceneRegistry.MarkDirty(SDFDirtyFlags.Topology | SDFDirtyFlags.Modifiers);
+        private void OnEnable() => MarkTopologyDirty();
+        private void OnDisable() => MarkTopologyDirty();
+        private void OnDestroy() => MarkTopologyDirty();
         private void OnDidApplyAnimationProperties() => OnValidate();
         private void OnValidate()
         {
@@ -35,6 +38,16 @@ namespace SdfRenderer
         }
 
         private static Vector3Int Positive(Vector3Int value) => new Vector3Int(Mathf.Max(0, value.x), Mathf.Max(0, value.y), Mathf.Max(0, value.z));
-        private static void MarkDirty() => SDFSceneRegistry.MarkDirty(SDFDirtyFlags.Modifiers);
+        private void MarkDirty()
+        {
+            unchecked { ++m_DataVersion; }
+            SDFSceneRegistry.MarkDirty(SDFDirtyFlags.Modifiers);
+        }
+
+        private void MarkTopologyDirty()
+        {
+            unchecked { ++m_DataVersion; }
+            SDFSceneRegistry.MarkDirty(SDFDirtyFlags.Topology | SDFDirtyFlags.Modifiers);
+        }
     }
 }

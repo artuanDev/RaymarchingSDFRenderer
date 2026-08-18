@@ -90,6 +90,9 @@ namespace SdfRenderer
             private readonly SDFSceneData m_SceneData = new SDFSceneData();
             private readonly Dictionary<long, MaterialPropertyBlock> m_CameraProperties = new Dictionary<long, MaterialPropertyBlock>(8);
             private readonly Material m_Material;
+            private readonly ProfilingSampler m_DepthNormalsSampler = new ProfilingSampler("SDF/Depth Normals");
+            private readonly ProfilingSampler m_MainLightShadowSampler = new ProfilingSampler("SDF/Main Light Shadow Caster");
+            private readonly ProfilingSampler m_ScreenSpaceShadowSampler = new ProfilingSampler("SDF/Screen Space Shadows");
             private CameraState m_CompatibilityCamera;
 
             internal bool IsValid => m_Material != null;
@@ -150,9 +153,17 @@ namespace SdfRenderer
                 passData.ModelCount = m_SceneData.ModelCount;
                 passData.InstanceCount = m_SceneData.ModelCount;
                 passData.ShaderPass = 0;
-                passData.Properties = BuildProperties(camera, 0);
+                bool reuseDepthNormalPrepass = m_Settings.ReuseDepthNormalPrepass &&
+                    (m_Settings.UseUrpScreenSpaceAo || m_Settings.CastMainLightShadows) &&
+                    resources.cameraDepthTexture.IsValid() && resources.cameraNormalsTexture.IsValid();
+                passData.Properties = BuildProperties(camera, 0, 0, reuseDepthNormalPrepass);
                 builder.SetRenderAttachment(resources.activeColorTexture, 0, AccessFlags.Write);
                 builder.SetRenderAttachmentDepth(resources.activeDepthTexture, AccessFlags.ReadWrite);
+                if (reuseDepthNormalPrepass)
+                {
+                    builder.UseTexture(resources.cameraDepthTexture, AccessFlags.Read);
+                    builder.UseTexture(resources.cameraNormalsTexture, AccessFlags.Read);
+                }
                 // These textures are sampled through URP globals in Lighting.hlsl.
                 // RenderGraph still needs explicit read declarations to preserve their
                 // lifetime and order this procedural pass after their producers.
@@ -199,7 +210,7 @@ namespace SdfRenderer
                 Matrix4x4 gpuProjection = GL.GetGPUProjectionMatrix(cameraData.GetProjectionMatrix(), true);
                 CameraState camera = BuildCameraState(cameraData.camera, gpuProjection * cameraData.GetViewMatrix(), lightData);
 
-                using IRasterRenderGraphBuilder builder = renderGraph.AddRasterRenderPass<PassData>("SDF Depth Normals", out PassData passData, profilingSampler);
+                using IRasterRenderGraphBuilder builder = renderGraph.AddRasterRenderPass<PassData>("SDF Depth Normals", out PassData passData, m_DepthNormalsSampler);
                 passData.Material = m_Material;
                 passData.ModelCount = m_SceneData.ModelCount;
                 passData.InstanceCount = m_SceneData.ModelCount;
@@ -231,7 +242,7 @@ namespace SdfRenderer
                 CameraState camera = BuildCameraState(cameraData.camera, gpuProjection * cameraData.GetViewMatrix(), lightData);
                 int cascadeCount = Mathf.Clamp(shadowData.mainLightShadowCascadesCount, 1, 4);
 
-                using IRasterRenderGraphBuilder builder = renderGraph.AddRasterRenderPass<PassData>("SDF Main Light Shadow Caster", out PassData passData, profilingSampler);
+                using IRasterRenderGraphBuilder builder = renderGraph.AddRasterRenderPass<PassData>("SDF Main Light Shadow Caster", out PassData passData, m_MainLightShadowSampler);
                 passData.Material = m_Material;
                 passData.ModelCount = m_SceneData.ModelCount;
                 passData.InstanceCount = m_SceneData.ModelCount * cascadeCount;
@@ -259,7 +270,7 @@ namespace SdfRenderer
                 Matrix4x4 gpuProjection = GL.GetGPUProjectionMatrix(cameraData.GetProjectionMatrix(), !resources.isActiveTargetBackBuffer);
                 CameraState camera = BuildCameraState(cameraData.camera, gpuProjection * cameraData.GetViewMatrix(), lightData);
 
-                using IRasterRenderGraphBuilder builder = renderGraph.AddRasterRenderPass<PassData>("SDF Screen Space Shadows", out PassData passData, profilingSampler);
+                using IRasterRenderGraphBuilder builder = renderGraph.AddRasterRenderPass<PassData>("SDF Screen Space Shadows", out PassData passData, m_ScreenSpaceShadowSampler);
                 passData.Material = m_Material;
                 passData.ModelCount = m_SceneData.ModelCount;
                 passData.InstanceCount = m_SceneData.ModelCount;
@@ -275,7 +286,8 @@ namespace SdfRenderer
                 });
             }
 
-            private MaterialPropertyBlock BuildProperties(CameraState camera, int passMode, int shadowCascadeCount = 0)
+            private MaterialPropertyBlock BuildProperties(CameraState camera, int passMode, int shadowCascadeCount = 0,
+                bool reuseDepthNormalPrepass = false)
             {
                 long key = ((long)camera.CameraId << 32) | (uint)passMode;
                 if (!m_CameraProperties.TryGetValue(key, out MaterialPropertyBlock properties))
@@ -301,6 +313,7 @@ namespace SdfRenderer
                 properties.SetFloat(SDFShaderIds.SurfaceEpsilon, m_Settings.SurfaceEpsilon);
                 properties.SetFloat(SDFShaderIds.NormalEpsilon, m_Settings.NormalEpsilon);
                 properties.SetFloat(SDFShaderIds.PixelTolerance, m_Settings.PixelTolerance);
+                properties.SetInteger(SDFShaderIds.ReuseDepthNormalPrepass, reuseDepthNormalPrepass ? 1 : 0);
                 properties.SetInteger(SDFShaderIds.PassMode, passMode);
                 properties.SetInteger(SDFShaderIds.PreviewMode, 0);
                 properties.SetInteger(SDFShaderIds.ModelCount, m_SceneData.ModelCount);

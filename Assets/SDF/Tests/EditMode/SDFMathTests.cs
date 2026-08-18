@@ -208,5 +208,28 @@ namespace SdfRenderer.Tests
             }
             finally { Object.DestroyImmediate(gameObject); }
         }
+
+        [Test]
+        public void CachedPickerLocalBoundsRefitMatchesFullWorldBoundsEvaluation()
+        {
+            GameObject gameObject = new GameObject("Animated Pick Bounds");
+            try
+            {
+                SDFShape shape = gameObject.AddComponent<SDFShape>();
+                SDFModifier modifier = gameObject.AddComponent<SDFModifier>();
+                modifier.Type = SDFModifierType.Elongate;
+                modifier.Vector = new Vector3(0.4f, 0.1f, 0.2f);
+                Bounds localBounds = SDFCpuEvaluator.GetLocalBounds(shape);
+
+                gameObject.transform.SetPositionAndRotation(new Vector3(3f, -2f, 5f), Quaternion.Euler(17f, 31f, 9f));
+                gameObject.transform.localScale = new Vector3(1.5f, 0.75f, 2f);
+                Bounds cachedRefit = SDFCpuEvaluator.GetWorldBounds(shape, localBounds);
+                Bounds fullEvaluation = SDFCpuEvaluator.GetWorldBounds(shape);
+
+                Assert.That(cachedRefit.center, Is.EqualTo(fullEvaluation.center));
+                Assert.That(cachedRefit.extents, Is.EqualTo(fullEvaluation.extents));
+            }
+            finally { Object.DestroyImmediate(gameObject); }
+        }
     }
 }

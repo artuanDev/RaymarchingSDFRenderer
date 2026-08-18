@@ -22,12 +22,14 @@ namespace SdfRenderer
         [SerializeField] private float m_Offset;
         [SerializeField] private Bounds m_ClipBounds = new Bounds(Vector3.zero, Vector3.one * 20f);
         [SerializeField] private SDFMaterialAsset m_Material;
+        [System.NonSerialized] private uint m_DataVersion;
 
-        public SDFShapeType ShapeType { get => m_ShapeType; set { m_ShapeType = value; MarkDirty(); } }
-        public float Radius { get => m_Radius; set { m_Radius = Mathf.Max(0.0001f, value); MarkDirty(); } }
-        public Vector3 Size { get => m_Size; set { m_Size = Positive(value); MarkDirty(); } }
-        public float Roundness { get => m_Roundness; set { m_Roundness = Mathf.Max(0f, value); MarkDirty(); } }
-        public float Height { get => m_Height; set { m_Height = Mathf.Max(0.0001f, value); MarkDirty(); } }
+        internal uint DataVersion => m_DataVersion;
+        public SDFShapeType ShapeType { get => m_ShapeType; set { if (m_ShapeType == value) return; m_ShapeType = value; MarkDirty(); } }
+        public float Radius { get => m_Radius; set { value = Mathf.Max(0.0001f, value); if (Mathf.Approximately(m_Radius, value)) return; m_Radius = value; MarkDirty(); } }
+        public Vector3 Size { get => m_Size; set { value = Positive(value); if (m_Size == value) return; m_Size = value; MarkDirty(); } }
+        public float Roundness { get => m_Roundness; set { value = Mathf.Max(0f, value); if (Mathf.Approximately(m_Roundness, value)) return; m_Roundness = value; MarkDirty(); } }
+        public float Height { get => m_Height; set { value = Mathf.Max(0.0001f, value); if (Mathf.Approximately(m_Height, value)) return; m_Height = value; MarkDirty(); } }
         public float RadiusA => m_RadiusA;
         public float RadiusB => m_RadiusB;
         public float Thickness => m_Thickness;
@@ -38,7 +40,7 @@ namespace SdfRenderer
         public Vector3 PointD => m_PointD;
         public Vector3 Normal => m_Normal.sqrMagnitude > 0f ? m_Normal.normalized : Vector3.up;
         public float Offset => m_Offset;
-        public Bounds ClipBounds { get => m_ClipBounds; set { m_ClipBounds = value; ClampParameters(); MarkDirty(); } }
+        public Bounds ClipBounds { get => m_ClipBounds; set { if (m_ClipBounds == value) return; m_ClipBounds = value; ClampParameters(); MarkDirty(); } }
         public SDFMaterialAsset Material { get => m_Material; set { if (m_Material == value) return; m_Material = value; MarkDirty(); } }
 
         public bool IsUnbounded => m_ShapeType == SDFShapeType.Plane || m_ShapeType == SDFShapeType.InfiniteCylinder ||
@@ -211,12 +213,17 @@ namespace SdfRenderer
             return SDFMath.EvaluatePrimitive(position, m_ShapeType, p0, p1, p2, p3);
         }
 
-        public void MarkDirty() => SDFSceneRegistry.MarkDirty(SDFDirtyFlags.Shapes | SDFDirtyFlags.Bounds);
+        public void MarkDirty()
+        {
+            unchecked { ++m_DataVersion; }
+            SDFSceneRegistry.MarkDirty(SDFDirtyFlags.Shapes | SDFDirtyFlags.Bounds);
+        }
         private void OnEnable() { ClampParameters(); SDFSceneRegistry.Register(this); MarkDirty(); }
         private void OnDisable() { SDFSceneRegistry.Unregister(this); MarkDirty(); }
         private void OnDestroy() { SDFSceneRegistry.Unregister(this); MarkDirty(); }
         private void OnDidApplyAnimationProperties() { ClampParameters(); MarkDirty(); }
-        private void OnTransformParentChanged() => MarkDirty();
+        private void OnTransformParentChanged() => SDFSceneRegistry.MarkDirty(
+            SDFDirtyFlags.Topology | SDFDirtyFlags.Shapes | SDFDirtyFlags.Bounds);
 
         private void OnValidate()
         {

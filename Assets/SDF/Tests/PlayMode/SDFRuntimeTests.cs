@@ -17,7 +17,28 @@ namespace SdfRenderer.Tests
             uint before = SDFSceneRegistry.Version;
             shape.Radius = 2f;
             Assert.That(SDFSceneRegistry.Version, Is.GreaterThan(before));
+            Assert.That(SDFSceneRegistry.GetDirtyFlagsSince(before),
+                Is.EqualTo(SDFDirtyFlags.Shapes | SDFDirtyFlags.Bounds));
             Object.Destroy(gameObject);
+        }
+
+        [Test]
+        public void AssigningUnchangedShapeValuesDoesNotInvalidateTheScene()
+        {
+            GameObject gameObject = new GameObject("Stable Runtime SDF");
+            try
+            {
+                SDFShape shape = gameObject.AddComponent<SDFShape>();
+                uint before = SDFSceneRegistry.Version;
+                shape.ShapeType = shape.ShapeType;
+                shape.Radius = shape.Radius;
+                shape.Size = shape.Size;
+                shape.Roundness = shape.Roundness;
+                shape.Height = shape.Height;
+                shape.ClipBounds = shape.ClipBounds;
+                Assert.That(SDFSceneRegistry.Version, Is.EqualTo(before));
+            }
+            finally { Object.DestroyImmediate(gameObject); }
         }
 
         [Test]
@@ -52,6 +73,7 @@ namespace SdfRenderer.Tests
                 Assert.That(settings.CastMainLightShadows, Is.True);
                 Assert.That(settings.UseUrpScreenSpaceAo, Is.True);
                 Assert.That(settings.SdfAmbientOcclusion, Is.True);
+                Assert.That(settings.ReuseDepthNormalPrepass, Is.True);
                 Assert.That(settings.AmbientOcclusionStrength, Is.GreaterThan(0f));
                 Assert.That(settings.AmbientOcclusionRadius, Is.GreaterThan(0f));
                 Assert.That(settings.AmbientOcclusionSamples, Is.InRange(2, 6));

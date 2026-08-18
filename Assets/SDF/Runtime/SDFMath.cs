@@ -363,12 +363,20 @@ namespace SdfRenderer
             Vector3 cb = c - b; Vector3 pb = p - b;
             Vector3 ac = a - c; Vector3 pc = p - c;
             Vector3 normal = Vector3.Cross(ba, ac);
+            float edgeDistanceSquared = Mathf.Min(SegmentDistanceSquared(pa, ba),
+                Mathf.Min(SegmentDistanceSquared(pb, cb), SegmentDistanceSquared(pc, ac)));
+            // Mathf.Sign(0) returns +1 whereas HLSL sign(0) returns 0. Without an
+            // explicit degenerate case, a collinear triangle is therefore treated as
+            // an infinite zero-distance plane on CPU and breaks picking/bounds tests.
+            float normalSquared = normal.sqrMagnitude;
+            if (normalSquared <= 0.000000000001f)
+                return Mathf.Sqrt(edgeDistanceSquared);
             float inside = Mathf.Sign(Vector3.Dot(Vector3.Cross(ba, normal), pa)) +
                            Mathf.Sign(Vector3.Dot(Vector3.Cross(cb, normal), pb)) +
                            Mathf.Sign(Vector3.Dot(Vector3.Cross(ac, normal), pc));
             if (inside < 2f)
-                return Mathf.Sqrt(Mathf.Min(SegmentDistanceSquared(pa, ba), Mathf.Min(SegmentDistanceSquared(pb, cb), SegmentDistanceSquared(pc, ac))));
-            return Mathf.Abs(Vector3.Dot(normal, pa)) / Mathf.Max(normal.magnitude, 0.0000001f);
+                return Mathf.Sqrt(edgeDistanceSquared);
+            return Mathf.Abs(Vector3.Dot(normal, pa)) / Mathf.Sqrt(normalSquared);
         }
 
         private static float SegmentDistanceSquared(Vector3 pointFromStart, Vector3 segment)

@@ -12,16 +12,18 @@ namespace SdfRenderer
         {
             if (shape == null) return float.PositiveInfinity;
             List<SDFModifier> modifiers = GetModifiers(shape);
-            return EvaluateWorld(shape, positionWS, modifiers);
+            return EvaluateWorld(shape, positionWS, modifiers, 0, modifiers.Count);
         }
 
-        private static float EvaluateWorld(SDFShape shape, Vector3 positionWS, List<SDFModifier> modifiers)
+        private static float EvaluateWorld(SDFShape shape, Vector3 positionWS,
+            IReadOnlyList<SDFModifier> modifiers, int modifierStart, int modifierCount)
         {
             Vector3 p = shape.transform.InverseTransformPoint(positionWS);
             float correction = 1f;
             float extrusionDistance = float.NegativeInfinity;
 
-            for (int i = 0; i < modifiers.Count; ++i)
+            int modifierEnd = Mathf.Min(modifiers.Count, modifierStart + modifierCount);
+            for (int i = Mathf.Max(0, modifierStart); i < modifierEnd; ++i)
             {
                 SDFModifier modifier = modifiers[i];
                 if (modifier == null || !modifier.isActiveAndEnabled) continue;
@@ -38,7 +40,7 @@ namespace SdfRenderer
 
             float scale = shape.GetConservativeDistanceScale() * correction;
             distance *= scale;
-            for (int i = 0; i < modifiers.Count; ++i)
+            for (int i = Mathf.Max(0, modifierStart); i < modifierEnd; ++i)
             {
                 SDFModifier modifier = modifiers[i];
                 if (modifier == null || !modifier.isActiveAndEnabled) continue;
@@ -52,14 +54,23 @@ namespace SdfRenderer
         public static Bounds GetWorldBounds(SDFShape shape)
         {
             if (shape == null) return default;
-            List<SDFModifier> modifiers = GetModifiers(shape);
-            return GetWorldBounds(shape, modifiers);
+            return GetWorldBounds(shape, GetLocalBounds(shape));
         }
 
-        private static Bounds GetWorldBounds(SDFShape shape, List<SDFModifier> modifiers)
+        public static Bounds GetLocalBounds(SDFShape shape)
         {
+            if (shape == null) return default;
+            List<SDFModifier> modifiers = GetModifiers(shape);
+            return GetLocalBounds(shape, modifiers, 0, modifiers.Count);
+        }
+
+        public static Bounds GetLocalBounds(SDFShape shape, IReadOnlyList<SDFModifier> modifiers,
+            int modifierStart, int modifierCount)
+        {
+            if (shape == null) return default;
             Bounds local = shape.GetLocalBounds();
-            for (int i = 0; i < modifiers.Count; ++i)
+            int modifierEnd = Mathf.Min(modifiers.Count, modifierStart + modifierCount);
+            for (int i = Mathf.Max(0, modifierStart); i < modifierEnd; ++i)
             {
                 SDFModifier modifier = modifiers[i];
                 if (modifier == null || !modifier.isActiveAndEnabled) continue;
@@ -70,19 +81,38 @@ namespace SdfRenderer
                 }
                 ExpandBounds(ref local, modifier);
             }
-            Bounds world = TransformBounds(shape.transform.localToWorldMatrix, local);
+            return local;
+        }
+
+        public static Bounds GetWorldBounds(SDFShape shape, Bounds localBounds)
+        {
+            if (shape == null) return default;
+            Bounds world = TransformBounds(shape.transform.localToWorldMatrix, localBounds);
             world.Expand(0.004f);
             return world;
         }
 
         public static bool Raycast(SDFShape shape, Ray ray, out float hitDistance, float maximumDistance = 100000f)
         {
+            if (shape == null)
+            {
+                hitDistance = 0f;
+                return false;
+            }
+            List<SDFModifier> modifiers = GetModifiers(shape);
+            Bounds localBounds = GetLocalBounds(shape, modifiers, 0, modifiers.Count);
+            return Raycast(shape, ray, modifiers, 0, modifiers.Count, localBounds, out hitDistance, maximumDistance);
+        }
+
+        public static bool Raycast(SDFShape shape, Ray ray, IReadOnlyList<SDFModifier> modifiers,
+            int modifierStart, int modifierCount, Bounds localBounds, out float hitDistance,
+            float maximumDistance = 100000f)
+        {
             hitDistance = 0f;
             if (shape == null || !shape.isActiveAndEnabled || !shape.gameObject.activeInHierarchy)
                 return false;
-            List<SDFModifier> modifiers = GetModifiers(shape);
             Vector3 direction = ray.direction.normalized;
-            if (direction.sqrMagnitude < 0.5f || !IntersectAabb(ray.origin, direction, GetWorldBounds(shape, modifiers), out float near, out float far))
+            if (direction.sqrMagnitude < 0.5f || !IntersectAabb(ray.origin, direction, GetWorldBounds(shape, localBounds), out float near, out float far))
                 return false;
             float current = Mathf.Max(near, 0f);
             far = Mathf.Min(far, maximumDistance);
@@ -90,7 +120,8 @@ namespace SdfRenderer
 
             for (int step = 0; step < 384 && current <= far; ++step)
             {
-                float distance = EvaluateWorld(shape, ray.origin + direction * current, modifiers);
+                float distance = EvaluateWorld(shape, ray.origin + direction * current,
+                    modifiers, modifierStart, modifierCount);
                 if (float.IsNaN(distance) || float.IsInfinity(distance)) return false;
                 float epsilon = Mathf.Max(0.0001f, current * 0.00001f);
                 if (Mathf.Abs(distance) <= epsilon)

@@ -15,7 +15,13 @@ This project contains an analytic, GPU-buffer-driven signed-distance-field rende
 
 The renderer never creates a reduced-resolution SDF target. Invisible instanced AABB geometry restricts fragment work, while the shader analytically sphere-traces inside each model volume and writes the hit's device depth.
 
+URP depth/normal prepasses are reused by the PBR color pass when available, avoiding a second full trace while retaining native resolution and an analytic fallback. Scene-view selection uses a refittable conservative-bounds BVH, so high-count animated scenes do not raymarch every shape merely to determine what is under the mouse.
+
 The `SDFBenchmarkController` supports up to 10,000 generated models. Its workload toggles add representative CSG operands and the complete modifier catalogue. The **Animation** flags can independently enable **Positions**, **Rotations**, **Scales**, **Materials**, **Operations**, **Modifiers**, any combination, or **Everything**. Transform animation and renderer matrix/bounds packing use Burst-compiled jobs; operation and modifier parameters use incremental buffer/bounds refresh paths rather than rebuilding topology.
+
+In Play Mode, use the controller's **Run Benchmark Sweep** context command (or enable **Run Sweep On Start**) to measure Static, individual animation categories, combined transforms, and Everything under identical conditions. The CSV-formatted Console report includes wall-clock FPS, Unity CPU/GPU frame timings, GPU-buffer upload volume, and per-frame shape/model/operation/modifier/bounds refresh counts, then restores the original animation mode.
+
+For a separate Editor measurement, open **Tools > SDF > Editor Performance Benchmark**, assign the benchmark controller, and run the complete Scene-view sweep outside Play Mode. It measures the native-resolution scene while orbiting, animating all data categories, changing selection, and applying inspector-style parameter edits. The report also records open Scene/Game views, Scene repaint rate, GC, upload volume, and granular refresh counts. Open a Game view or second Scene view before starting to include those simultaneous-view configurations.
 
 On first successful Unity import, the setup generates the settings asset, installs the renderer feature, compiles the `.sdfshader` registry, and creates the four sample scenes under `Assets/SDF/Samples`. Run the `SDF.EditModeTests` and `SDF.PlayModeTests` assemblies from **Window > General > Test Runner** after the import finishes.
 

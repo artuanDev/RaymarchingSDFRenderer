@@ -21,6 +21,17 @@ Reference inspected read-only: `D:\Unity\SDF_Rendering`.
 | Compute-resident two-shape benchmark | Not copied. Its fixed two-shape layout could not represent the complete primitive, modifier, CSG, and custom-material system. The replacement benchmark exercises the production component-to-buffer path at up to 10,000 models. |
 | Profiler markers | Retained for CPU compilation/upload and GPU raymarch pass, with a separate `SDF/CPU Refresh Transforms` marker for dynamic-scene profiling. |
 
+## Current high-count optimization pass
+
+- Scene-view selection now uses a refittable BVH instead of analytically raymarching every registered shape during every IMGUI Layout event.
+- Shape parameter edits remain incremental and no longer rebuild scene topology.
+- Operation and modifier revisions skip unchanged component packing.
+- Modifier-only changes update affected bounds from cached matrices without traversing every Unity transform.
+- When a depth/normal prepass exists, the PBR color pass validates and reuses its hit and normal rather than tracing the same model twice.
+- Runtime and Editor benchmark sweeps report CPU/GPU timing, allocation, upload, and granular refresh telemetry; the Editor sweep additionally exercises Scene-view orbit, selection churn, and inspector-style edits without substituting a reduced preview.
+
+Sparse world-space distance bricks from the reference SDF-engine approach are not used as the universal representation. The benchmark deliberately moves and modifies all 10,000 independent models, which would invalidate most world-space bricks every frame. The renderer retains analytic local-space instances for this workload and leaves sparse brick caching as a future hybrid path for large, spatially coherent edit stacks where measured cache reuse justifies its memory and update cost.
+
 ## Rejected or replaced
 
 The old project replaced the entire render pipeline. That prevented normal URP coexistence and was replaced with a RenderGraph-compatible URP renderer feature. Its `SDFSample` carried only RGB, so all objects shared one Blinn–Phong calculation. The new hit-surface fold evaluates each contributing shading model and blends final radiance with the geometric CSG weight.

@@ -66,6 +66,7 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
             float _SDFSurfaceEpsilon;
             float _SDFNormalEpsilon;
             float _SDFPixelTolerance;
+            int _SDFReuseDepthNormalPrepass;
             int _SDFPassMode;
             int _SDFPreviewMode;
             int _SDFModelCount;
@@ -866,8 +867,53 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
                 float depth;
             };
 
+            CameraTraceOutput ReuseDepthNormalPrepass(Varyings input)
+            {
+                float2 screenUV=input.positionCS.xy/_ScaledScreenParams.xy;
+                float deviceDepth=SampleSceneDepth(screenUV);
+                #if UNITY_REVERSED_Z
+                    if(deviceDepth<=1e-7) discard;
+                #else
+                    if(deviceDepth>=0.9999999) discard;
+                #endif
+
+                float3 hitPosition=ComputeWorldSpacePosition(screenUV,deviceDepth,UNITY_MATRIX_I_VP);
+                float3 viewDirection;
+                float cameraDistance;
+                if(_SDFOrthographic>0.5)
+                {
+                    viewDirection=-normalize(_SDFCameraForward);
+                    cameraDistance=max(abs(dot(hitPosition-_SDFCameraPosition,_SDFCameraForward)),_SDFCameraNear);
+                }
+                else
+                {
+                    float3 toCamera=_SDFCameraPosition-hitPosition;
+                    cameraDistance=max(length(toCamera),_SDFCameraNear);
+                    viewDirection=toCamera/cameraDistance;
+                }
+                float pixelSize=(_SDFOrthographic>0.5)?_SDFPixelWorldScale:cameraDistance*_SDFPixelWorldScale;
+                float epsilon=max(_SDFSurfaceEpsilon,pixelSize*_SDFPixelTolerance);
+                // The shared depth texture also contains regular opaque geometry and
+                // nearer SDF models. Accept the cached hit only when this model's
+                // field confirms the same surface at depth-buffer precision.
+                if(abs(EvaluateModel(hitPosition,input.modelIndex))>max(epsilon*2.0,_SDFSurfaceEpsilon*4.0)) discard;
+
+                float3 normal=SampleSceneNormals(screenUV);
+                if(dot(normal,normal)<0.25)
+                    normal=EvaluateNormal(hitPosition,input.modelIndex,max(_SDFNormalEpsilon,epsilon));
+                CameraTraceOutput output;
+                output.hitPosition=hitPosition;
+                output.normal=normalize(normal);
+                output.viewDirection=viewDirection;
+                output.screenUV=screenUV;
+                output.depth=deviceDepth;
+                return output;
+            }
+
             CameraTraceOutput TraceCamera(Varyings input)
             {
+                if(_SDFPassMode==0&&_SDFReuseDepthNormalPrepass!=0)
+                    return ReuseDepthNormalPrepass(input);
                 SDFModelGpu model=_SDFModels[input.modelIndex];
                 float3 ro,rd;
                 if(_SDFOrthographic>0.5){rd=normalize(_SDFCameraForward);ro=input.positionWS-rd*dot(input.positionWS-_SDFCameraPosition,rd);}

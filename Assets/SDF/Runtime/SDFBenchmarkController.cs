@@ -1,4 +1,6 @@
 using System;
+using System.Collections;
+using System.Text;
 using Unity.Burst;
 using Unity.Jobs;
 using Unity.Mathematics;
@@ -90,11 +92,16 @@ namespace SdfRenderer
         [SerializeField, Range(1, 32)] private int m_MaterialCount = 8;
         [SerializeField, Min(0f)] private float m_AnimationSpeed = 1f;
         [SerializeField] private bool m_PreviewInEditMode;
+        [Header("Automated measurement")]
+        [SerializeField] private bool m_RunSweepOnStart;
+        [SerializeField, Min(1)] private int m_SweepWarmupFrames = 60;
+        [SerializeField, Min(1)] private int m_SweepSampleFrames = 180;
         private Transform m_GeneratedRoot;
         private TransformAccessArray m_Transforms;
         private SDFMaterialAsset[] m_Materials;
         private SDFOperation[] m_Operations;
         private SDFModifier[] m_Modifiers;
+        private bool m_SweepRunning;
 
         private int m_BuiltCount = -1;
         private int m_BuiltMaterialCount = -1;
@@ -104,14 +111,124 @@ namespace SdfRenderer
         private SDFBenchmarkAnimation m_PreviousAnimation;
 
         public SDFBenchmarkAnimation Animation { get => m_Animation; set => m_Animation = value; }
+        public bool PreviewInEditMode { get => m_PreviewInEditMode; set => m_PreviewInEditMode = value; }
 
         private void OnEnable() => RebuildIfNeeded();
-        private void OnDisable() => DestroyGenerated();
+        private void Start()
+        {
+            if (Application.isPlaying && m_RunSweepOnStart)
+                StartCoroutine(RunBenchmarkSweep());
+        }
+        private void OnDisable()
+        {
+            m_SweepRunning = false;
+            DestroyGenerated();
+        }
         private void OnValidate()
         {
             m_ModelCount = Mathf.Clamp(m_ModelCount, 1, 10000);
             m_MaterialCount = Mathf.Clamp(m_MaterialCount, 1, 32);
             m_AnimationSpeed = Mathf.Max(0f, m_AnimationSpeed);
+            m_SweepWarmupFrames = Mathf.Max(1, m_SweepWarmupFrames);
+            m_SweepSampleFrames = Mathf.Max(1, m_SweepSampleFrames);
+        }
+
+        [ContextMenu("Run Benchmark Sweep")]
+        public void BeginBenchmarkSweep()
+        {
+            if (!Application.isPlaying)
+            {
+                Debug.LogWarning("Enter Play Mode before running the SDF benchmark sweep.", this);
+                return;
+            }
+            if (m_SweepRunning)
+                return;
+            StartCoroutine(RunBenchmarkSweep());
+        }
+
+        private IEnumerator RunBenchmarkSweep()
+        {
+            if (m_SweepRunning)
+                yield break;
+            m_SweepRunning = true;
+            SDFBenchmarkAnimation original = m_Animation;
+            var modes = new[]
+            {
+                SDFBenchmarkAnimation.None,
+                SDFBenchmarkAnimation.Positions,
+                SDFBenchmarkAnimation.Rotations,
+                SDFBenchmarkAnimation.Scales,
+                SDFBenchmarkAnimation.Positions | SDFBenchmarkAnimation.Rotations | SDFBenchmarkAnimation.Scales,
+                SDFBenchmarkAnimation.Materials,
+                SDFBenchmarkAnimation.Operations,
+                SDFBenchmarkAnimation.Modifiers,
+                SDFBenchmarkAnimation.Everything
+            };
+            var labels = new[]
+            {
+                "Static", "Positions", "Rotations", "Scales", "Transforms", "Materials",
+                "Operations", "Modifiers", "Everything"
+            };
+            var timings = new FrameTiming[1];
+            var report = new StringBuilder(1024);
+            report.AppendLine($"SDF benchmark sweep: models={m_ModelCount}, operations={m_IncludeOperations}, " +
+                $"modifiers={m_IncludeModifiers}, resolution={Screen.width}x{Screen.height}");
+            report.AppendLine("Mode,FPS,CPU ms,GPU ms,Upload KiB/frame,Shapes/frame,Models/frame,Operations/frame,Modifiers/frame,Bounds/frame,Frames");
+
+            for (int modeIndex = 0; modeIndex < modes.Length; ++modeIndex)
+            {
+                m_Animation = modes[modeIndex];
+                for (int frame = 0; frame < m_SweepWarmupFrames; ++frame)
+                    yield return null;
+
+                double start = Time.realtimeSinceStartupAsDouble;
+                double cpuTotal = 0.0;
+                double gpuTotal = 0.0;
+                int cpuSamples = 0;
+                int gpuSamples = 0;
+                long uploadTotal = 0L;
+                long shapeTotal = 0L;
+                long modelTotal = 0L;
+                long operationTotal = 0L;
+                long modifierTotal = 0L;
+                long boundsTotal = 0L;
+                for (int frame = 0; frame < m_SweepSampleFrames; ++frame)
+                {
+                    FrameTimingManager.CaptureFrameTimings();
+                    yield return null;
+                    uint timingCount = FrameTimingManager.GetLatestTimings(1, timings);
+                    if (timingCount > 0 && timings[0].cpuFrameTime > 0.0)
+                    {
+                        cpuTotal += timings[0].cpuFrameTime;
+                        ++cpuSamples;
+                    }
+                    if (timingCount > 0 && timings[0].gpuFrameTime > 0.0)
+                    {
+                        gpuTotal += timings[0].gpuFrameTime;
+                        ++gpuSamples;
+                    }
+                    SDFPerformanceSnapshot snapshot = SDFPerformanceMetrics.CurrentFrame;
+                    uploadTotal += snapshot.UploadBytes;
+                    shapeTotal += snapshot.ShapesRefreshed;
+                    modelTotal += snapshot.ModelsRefreshed;
+                    operationTotal += snapshot.OperationsRefreshed;
+                    modifierTotal += snapshot.ModifiersRefreshed;
+                    boundsTotal += snapshot.BoundsRefreshed;
+                }
+                double elapsed = Math.Max(0.000001, Time.realtimeSinceStartupAsDouble - start);
+                double fps = m_SweepSampleFrames / elapsed;
+                double cpu = cpuSamples > 0 ? cpuTotal / cpuSamples : 0.0;
+                double gpu = gpuSamples > 0 ? gpuTotal / gpuSamples : 0.0;
+                double samples = m_SweepSampleFrames;
+                report.AppendLine($"{labels[modeIndex]},{fps:F2},{cpu:F3},{gpu:F3}," +
+                    $"{uploadTotal / samples / 1024.0:F2},{shapeTotal / samples:F2},{modelTotal / samples:F2}," +
+                    $"{operationTotal / samples:F2},{modifierTotal / samples:F2},{boundsTotal / samples:F2}," +
+                    $"{m_SweepSampleFrames}");
+            }
+
+            m_Animation = original;
+            m_SweepRunning = false;
+            Debug.Log(report.ToString(), this);
         }
 
         private void Update()
@@ -189,10 +306,11 @@ namespace SdfRenderer
                         {
                             SDFOperation operation = m_Operations[i];
                             if (operation == null) continue;
-                            operation.Type = (SDFOperationType)((i + operationOffset) % 6);
-                            operation.Smoothness = animateOperations
-                                ? 0.08f + (Mathf.Sin(time * 1.1f + i * 0.31f) * 0.5f + 0.5f) * 0.24f
-                                : 0.18f;
+                            operation.SetParameters(
+                                (SDFOperationType)((i + operationOffset) % 6),
+                                animateOperations
+                                    ? 0.08f + (Mathf.Sin(time * 1.1f + i * 0.31f) * 0.5f + 0.5f) * 0.24f
+                                    : 0.18f);
                         }
                     }
                 }

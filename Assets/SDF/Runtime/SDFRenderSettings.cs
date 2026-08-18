@@ -15,6 +15,9 @@ namespace SdfRenderer
         [SerializeField, Min(0.000001f)] private float m_NormalEpsilon = 0.001f;
         [SerializeField, Range(0f, 2f)] private float m_PixelTolerance = 0.5f;
 
+        [Header("Performance")]
+        [SerializeField] private bool m_ReuseDepthNormalPrepass = true;
+
         [Header("Shadows")]
         [SerializeField] private bool m_ReceiveUrpShadows = true;
         [SerializeField] private bool m_CastMainLightShadows = true;
@@ -45,6 +48,7 @@ namespace SdfRenderer
         public float SurfaceEpsilon => m_SurfaceEpsilon;
         public float NormalEpsilon => m_NormalEpsilon;
         public float PixelTolerance => m_PixelTolerance;
+        public bool ReuseDepthNormalPrepass => m_ReuseDepthNormalPrepass;
         public bool ReceiveUrpShadows => m_ReceiveUrpShadows;
         public bool CastMainLightShadows => m_CastMainLightShadows;
         public bool SdfSelfShadows => m_SdfSelfShadows;
