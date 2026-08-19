@@ -113,27 +113,38 @@ void MakeTransform(float3 position, float scale, float3 axisX, float3 axisY, flo
     worldCenter = position + scale * (axisX * childPosition.x + axisY * childPosition.y + axisZ * childPosition.z);
 }
 
+// The first term is the AABB of the rotated local box, which is what a rotating object
+// costs: up to sqrt(3) per axis, five times the volume, and every extra cubic unit becomes
+// rasterized fragments that march and then miss. For a shape far smaller than its local box
+// diagonal - a sphere inscribed in a cube, a torus in a slab - the shape's own bounding
+// sphere is a much tighter bound and does not grow under rotation at all. Both are valid
+// bounds, so taking the smaller per axis is still a valid bound and can never clip.
 void WorldBounds(float3 center, float scale, float3 axisX, float3 axisY, float3 axisZ,
-    float3 localExtents, out float3 minimum, out float3 maximum)
+    float3 localExtents, float localRadius, out float3 minimum, out float3 maximum)
 {
-    float3 extents = scale * (abs(axisX) * localExtents.x + abs(axisY) * localExtents.y + abs(axisZ) * localExtents.z) + 0.002.xxx;
+    float3 boxExtents = abs(axisX) * localExtents.x + abs(axisY) * localExtents.y + abs(axisZ) * localExtents.z;
+    float3 extents = scale * min(boxExtents, localRadius.xxx) + 0.002.xxx;
     minimum = center - extents;
     maximum = center + extents;
 }
 
-void DefaultParameters(uint type, out float4 p0, out float4 p1, out float4 p2, out float4 p3, out float3 extents)
+// radius is the true distance from the local origin to the furthest surface point, which is
+// what makes the bound rotation invariant. It is not the box diagonal: for the sphere it is
+// the radius itself, and for the torus it is major + minor measured in the ring plane.
+void DefaultParameters(uint type, out float4 p0, out float4 p1, out float4 p2, out float4 p3,
+    out float3 extents, out float radius)
 {
     p0 = float4(0.5, 1.0, 0.75, 0.2);
     p1 = float4(0.5, 0.5, 0.5, 0.1);
     p2 = float4(0.0, -0.5, 0.0, 0.1);
     p3 = float4(0.0, 0.5, 0.0, 0.785398163);
-    if (type == 0u) extents = 0.5.xxx;
-    else if (type == 2u) extents = 0.6.xxx;
-    else extents = float3(0.95, 0.2, 0.95); // default torus: radiusA + radiusB, radiusB
+    if (type == 0u) { extents = 0.5.xxx; radius = 0.5; }                  // sphere of radius p0.x
+    else if (type == 2u) { extents = 0.6.xxx; radius = length(0.6.xxx); } // box: corner is the furthest point
+    else { extents = float3(0.95, 0.2, 0.95); radius = 0.95; }            // torus: radiusA + radiusB
 }
 
 void BuildModifier(uint index, float time, bool animate, out ModifierGpu modifier,
-    inout float3 localCenter, inout float3 localExtents, out float boundsScale)
+    inout float3 localCenter, inout float3 localExtents, inout float localRadius, out float boundsScale)
 {
     uint type = index % 10u;
     uint axes = (type == 6u || type == 7u) ? 2u : 1u;
@@ -154,38 +165,64 @@ void BuildModifier(uint index, float time, bool animate, out ModifierGpu modifie
     boundsScale = (type == 5u || type == 6u || type == 7u || type == 8u) ? 0.0 : 1.0;
     float3 mask = float3((axes & 1u) != 0u ? 1.0 : 0.0,
         (axes & 2u) != 0u ? 1.0 : 0.0, (axes & 4u) != 0u ? 1.0 : 0.0);
+    // A modifier that grows the box by some delta moves any surface point outward by at
+    // most the length of that delta, so adding it to the radius stays conservative. The
+    // modifiers that restructure the bounds instead fall back to the box diagonal, which is
+    // always a valid radius. Twist and bend already produce an isotropic bound, so their
+    // scalar radius is tighter than the diagonal of the cube they write.
     if (type == 0u || type == 1u)
+    {
         localExtents += abs(amount);
+        localRadius += abs(amount);
+    }
     else if (type == 2u)
-        localExtents += abs(vectorValue) * mask;
+    {
+        float3 delta = abs(vectorValue) * mask;
+        localExtents += delta;
+        localRadius += length(delta);
+    }
     else if (type == 3u)
     {
         float3 offset = abs(vectorValue) * mask;
         if ((axes & 1u) != 0u) { localExtents.x += abs(localCenter.x) + offset.x; localCenter.x = 0.0; }
         if ((axes & 2u) != 0u) { localExtents.y += abs(localCenter.y) + offset.y; localCenter.y = 0.0; }
         if ((axes & 4u) != 0u) { localExtents.z += abs(localCenter.z) + offset.z; localCenter.z = 0.0; }
+        localRadius = length(localExtents);
     }
     else if (type == 4u)
-        localExtents += abs(vectorValue) * count * mask;
+    {
+        float3 delta = abs(vectorValue) * count * mask;
+        localExtents += delta;
+        localRadius += length(delta);
+    }
     else if (type == 5u)
     {
         localCenter = 0.0.xxx;
         localExtents = 0.9.xxx;
+        localRadius = length(localExtents);
     }
     else if (type == 6u || type == 7u)
     {
         float radius = length(localCenter) + length(localExtents);
         localCenter = 0.0.xxx;
         localExtents = radius.xxx;
+        localRadius = radius;
     }
     else if (type == 8u)
     {
         float radius = abs(amount) + abs(localCenter.x) + localExtents.x;
         localCenter = float3(0.0, localCenter.y, 0.0);
         localExtents = float3(radius, localExtents.y, radius);
+        localRadius = length(localExtents);
     }
     else if (type == 9u)
-        localExtents += abs(amount) * mask;
+    {
+        float3 delta = abs(amount) * mask;
+        localExtents += delta;
+        localRadius += length(delta);
+    }
+    // The box diagonal is always a valid radius, so never keep a looser one than that.
+    localRadius = min(localRadius, length(localExtents));
 }
 
 void WriteMaterial(uint index)
@@ -234,13 +271,14 @@ void UpdateBenchmark(uint3 dispatchThreadId : SV_DispatchThreadID)
     uint baseType = (index & 1u) == 0u ? 0u : 2u;
     float4 p0, p1, p2, p3;
     float3 localExtents;
-    DefaultParameters(baseType, p0, p1, p2, p3, localExtents);
+    float localRadius;
+    DefaultParameters(baseType, p0, p1, p2, p3, localExtents, localRadius);
     float3 localCenter = 0.0.xxx;
     ModifierGpu modifier;
     float boundsScale = 1.0;
     if (_IncludeModifiers != 0u)
         BuildModifier(index, _AnimationTime, (_AnimationFlags & AnimateModifiers) != 0u,
-            modifier, localCenter, localExtents, boundsScale);
+            modifier, localCenter, localExtents, localRadius, boundsScale);
     else
     {
         modifier.TypeAxesAmount = 0.0.xxxx;
@@ -254,7 +292,7 @@ void UpdateBenchmark(uint3 dispatchThreadId : SV_DispatchThreadID)
     MakeTransform(position, scale, axisX, axisY, axisZ, 0.0.xxx, row0, row1, row2, baseCenter);
     float3 boundsCenter = baseCenter + scale * (axisX * localCenter.x + axisY * localCenter.y + axisZ * localCenter.z);
     float3 baseMin, baseMax;
-    WorldBounds(boundsCenter, scale, axisX, axisY, axisZ, localExtents, baseMin, baseMax);
+    WorldBounds(boundsCenter, scale, axisX, axisY, axisZ, localExtents, localRadius, baseMin, baseMax);
 
     ShapeGpu baseShape;
     baseShape.WorldToLocal0 = row0;
@@ -279,12 +317,13 @@ void UpdateBenchmark(uint3 dispatchThreadId : SV_DispatchThreadID)
         shapeCount = 2u;
         uint operandType = index % 3u == 0u ? 0u : (index % 3u == 1u ? 2u : 4u);
         float3 operandExtents;
-        DefaultParameters(operandType, p0, p1, p2, p3, operandExtents);
+        float operandRadius;
+        DefaultParameters(operandType, p0, p1, p2, p3, operandExtents, operandRadius);
         float3 childPosition = float3(0.38, 0.08, 0.0);
         float3 operandCenter;
         MakeTransform(position, scale, axisX, axisY, axisZ, childPosition, row0, row1, row2, operandCenter);
         float3 operandMin, operandMax;
-        WorldBounds(operandCenter, scale, axisX, axisY, axisZ, operandExtents, operandMin, operandMax);
+        WorldBounds(operandCenter, scale, axisX, axisY, axisZ, operandExtents, operandRadius, operandMin, operandMax);
         uint operation = (index + (((_AnimationFlags & AnimateOperations) != 0u) ? (uint)floor(_AnimationTime * 0.35) : 0u)) % 6u;
         float smoothness = ((_AnimationFlags & AnimateOperations) != 0u)
             ? 0.08 + (sin(_AnimationTime * 1.1 + (float)index * 0.31) * 0.5 + 0.5) * 0.24 : 0.18;
