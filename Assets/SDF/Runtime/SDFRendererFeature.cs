@@ -84,10 +84,23 @@ namespace SdfRenderer
 
         private sealed class SDFRenderPass : ScriptableRenderPass
         {
+            private const int SortBucketCount = 256;
+
             private static readonly int CullModelsId = Shader.PropertyToID("_SDFCullModels");
             private static readonly int IndirectArgumentsId = Shader.PropertyToID("_SDFIndirectArguments");
             private static readonly int CullModelCountId = Shader.PropertyToID("_SDFCullModelCount");
             private static readonly int CullSceneViewId = Shader.PropertyToID("_SDFCullSceneView");
+            private static readonly int ModelBucketsId = Shader.PropertyToID("_SDFModelBuckets");
+            private static readonly int BucketCountsId = Shader.PropertyToID("_SDFBucketCounts");
+            private static readonly int BucketCursorsId = Shader.PropertyToID("_SDFBucketCursors");
+            private static readonly int CullCameraPositionId = Shader.PropertyToID("_SDFCullCameraPosition");
+            private static readonly int CullSortDistanceId = Shader.PropertyToID("_SDFCullSortDistance");
+            private static readonly int CullBoundsExtrusionId = Shader.PropertyToID("_SDFCullBoundsExtrusion");
+
+            // Distinguishes visible lists that cover the same camera and source but cull
+            // against different bounds, so the shadow pass does not reuse the camera list.
+            private const int CameraVisibilityVariant = 0;
+            private const int ShadowVisibilityVariant = 1;
             private static readonly int[] FrustumPlaneIds =
             {
                 Shader.PropertyToID("_SDFFrustumPlane0"), Shader.PropertyToID("_SDFFrustumPlane1"),
@@ -117,8 +130,13 @@ namespace SdfRenderer
                 public ComputeShader Shader;
                 public int ClearKernel;
                 public int CullKernel;
+                public int PrefixSumKernel;
+                public int ScatterKernel;
                 public int ModelCount;
                 public int SceneView;
+                public Vector4 CameraPosition;
+                public float SortDistance;
+                public Vector4 BoundsExtrusion;
                 public Vector4 Plane0;
                 public Vector4 Plane1;
                 public Vector4 Plane2;
@@ -128,9 +146,15 @@ namespace SdfRenderer
                 public BufferHandle ModelsHandle;
                 public BufferHandle VisibleHandle;
                 public BufferHandle ArgsHandle;
+                public BufferHandle BucketsHandle;
+                public BufferHandle CountsHandle;
+                public BufferHandle CursorsHandle;
                 public GraphicsBuffer Models;
                 public GraphicsBuffer Visible;
                 public GraphicsBuffer Args;
+                public GraphicsBuffer Buckets;
+                public GraphicsBuffer Counts;
+                public GraphicsBuffer Cursors;
             }
 
             private sealed class VisibilityEntry
@@ -138,19 +162,35 @@ namespace SdfRenderer
                 public readonly Plane[] Planes = new Plane[6];
                 public GraphicsBuffer Visible;
                 public GraphicsBuffer Args;
+                public GraphicsBuffer Buckets;
+                public GraphicsBuffer Counts;
+                public GraphicsBuffer Cursors;
                 public int Capacity;
                 public int LastCullFrame = int.MinValue;
                 public int LastUsedFrame = int.MinValue;
                 public int LastModelCount;
                 public Matrix4x4 LastViewProjection;
+                public Vector3 LastExtrusion;
 
                 public void EnsureCapacity(int count)
                 {
+                    if (Counts == null)
+                    {
+                        Counts = new GraphicsBuffer(GraphicsBuffer.Target.Structured, SortBucketCount, sizeof(uint))
+                        {
+                            name = "SDF Sort Bucket Counts"
+                        };
+                        Cursors = new GraphicsBuffer(GraphicsBuffer.Target.Structured, SortBucketCount, sizeof(uint))
+                        {
+                            name = "SDF Sort Bucket Cursors"
+                        };
+                    }
                     int capacity = Mathf.NextPowerOfTwo(Mathf.Max(1, count));
-                    if (capacity <= Capacity && Visible != null && Args != null)
+                    if (capacity <= Capacity && Visible != null && Args != null && Buckets != null)
                         return;
                     Visible?.Release();
                     Args?.Release();
+                    Buckets?.Release();
                     Visible = new GraphicsBuffer(GraphicsBuffer.Target.Structured, capacity, sizeof(uint))
                     {
                         name = "SDF Visible Model Indices"
@@ -160,6 +200,10 @@ namespace SdfRenderer
                     {
                         name = "SDF Indirect Draw Arguments"
                     };
+                    Buckets = new GraphicsBuffer(GraphicsBuffer.Target.Structured, capacity, sizeof(uint))
+                    {
+                        name = "SDF Model Sort Buckets"
+                    };
                     Capacity = capacity;
                     LastCullFrame = int.MinValue;
                 }
@@ -168,8 +212,14 @@ namespace SdfRenderer
                 {
                     Visible?.Release();
                     Args?.Release();
+                    Buckets?.Release();
+                    Counts?.Release();
+                    Cursors?.Release();
                     Visible = null;
                     Args = null;
+                    Buckets = null;
+                    Counts = null;
+                    Cursors = null;
                     Capacity = 0;
                 }
             }
@@ -221,6 +271,8 @@ namespace SdfRenderer
             private readonly ComputeShader m_VisibilityShader;
             private readonly int m_ClearVisibilityKernel = -1;
             private readonly int m_CullVisibilityKernel = -1;
+            private readonly int m_PrefixSumVisibilityKernel = -1;
+            private readonly int m_ScatterVisibilityKernel = -1;
             private readonly ProfilingSampler m_DepthNormalsSampler = new ProfilingSampler("SDF/Depth Normals");
             private readonly ProfilingSampler m_MainLightShadowSampler = new ProfilingSampler("SDF/Main Light Shadow Caster");
             private readonly ProfilingSampler m_ScreenSpaceShadowSampler = new ProfilingSampler("SDF/Screen Space Shadows");
@@ -236,6 +288,7 @@ namespace SdfRenderer
                 public Vector3 Position;
                 public Vector3 Forward;
                 public float Near;
+                public float Far;
                 public float Orthographic;
                 public float SceneView;
                 public float PixelWorldScale;
@@ -252,8 +305,10 @@ namespace SdfRenderer
                 m_VisibilityShader = Resources.Load<ComputeShader>("SDFModelCull");
                 if (m_VisibilityShader != null)
                 {
-                    m_ClearVisibilityKernel = m_VisibilityShader.FindKernel("ClearArguments");
-                    m_CullVisibilityKernel = m_VisibilityShader.FindKernel("CullModels");
+                    m_ClearVisibilityKernel = m_VisibilityShader.FindKernel("ClearCounts");
+                    m_CullVisibilityKernel = m_VisibilityShader.FindKernel("CullAndCount");
+                    m_PrefixSumVisibilityKernel = m_VisibilityShader.FindKernel("PrefixSumBuckets");
+                    m_ScatterVisibilityKernel = m_VisibilityShader.FindKernel("ScatterModels");
                 }
                 profilingSampler = new ProfilingSampler("SDF/Full Resolution Raymarch");
             }
@@ -456,19 +511,31 @@ namespace SdfRenderer
                 Matrix4x4 gpuProjection = GL.GetGPUProjectionMatrix(cameraData.GetProjectionMatrix(), !resources.isActiveTargetBackBuffer);
                 CameraState camera = BuildCameraState(cameraData.camera, gpuProjection * cameraData.GetViewMatrix(), lightData);
 
+                // Vert extrudes each caster along the light by ShadowMaxDistance, so the
+                // cull has to see that same swept volume: a caster behind the camera can
+                // still drop a shadow onto a receiver in view. Until now this pass drew
+                // every model in the source with no culling at all.
+                Vector3 shadowExtrusion = -camera.LightDirection * m_Settings.ShadowMaxDistance;
                 int modelIdBase = 0;
                 for (int sourceIndex = 0; sourceIndex < m_Sources.Count; ++sourceIndex)
                 {
                     RenderSource source = m_Sources[sourceIndex];
+                    VisibilityResult visibility = RecordVisibility(renderGraph, camera, source,
+                        shadowExtrusion, ShadowVisibilityVariant);
                     using IRasterRenderGraphBuilder builder = renderGraph.AddRasterRenderPass<PassData>(
                         "SDF Screen Space Shadows", out PassData passData, m_ScreenSpaceShadowSampler);
-                    SetupDrawPass(renderGraph, builder, passData, source);
+                    SetupDrawPass(renderGraph, builder, passData, source, visibility);
                     passData.Material = m_Material;
                     passData.InstanceCount = source.ModelCount;
                     passData.VertexCount = 36;
                     passData.ShaderPass = 3;
-                    passData.Properties = BuildProperties(camera, source, modelIdBase, 3);
+                    passData.Properties = BuildProperties(camera, source, modelIdBase, 3, 0, false, visibility);
                     builder.SetRenderAttachment(resources.activeColorTexture, 0, AccessFlags.ReadWrite);
+                    // Bound read-only purely so the pass can depth-test. The pass writes no
+                    // depth; without an attachment the only legal state is ZTest Always,
+                    // which is what made every fragment of every extruded caster volume
+                    // reach the fragment shader.
+                    builder.SetRenderAttachmentDepth(resources.activeDepthTexture, AccessFlags.Read);
                     builder.UseTexture(resources.cameraDepthTexture, AccessFlags.Read);
                     builder.UseTexture(resources.cameraNormalsTexture, AccessFlags.Read);
                     SetDrawFunction(builder);
@@ -501,13 +568,14 @@ namespace SdfRenderer
                 }
             }
 
-            private VisibilityResult RecordVisibility(RenderGraph renderGraph, CameraState camera, RenderSource source)
+            private VisibilityResult RecordVisibility(RenderGraph renderGraph, CameraState camera, RenderSource source,
+                Vector3 boundsExtrusion = default, int variant = CameraVisibilityVariant)
             {
                 if (renderGraph == null || m_VisibilityShader == null || !SystemInfo.supportsComputeShaders ||
                     source.ModelCount < 64)
                     return default;
 
-                long key = ((long)camera.CameraId << 32) ^ (uint)source.Id;
+                long key = ((long)camera.CameraId << 32) ^ ((long)source.Id << 4) ^ (uint)variant;
                 if (!m_Visibility.TryGetValue(key, out VisibilityEntry entry))
                 {
                     entry = new VisibilityEntry();
@@ -517,12 +585,13 @@ namespace SdfRenderer
                 int frame = Time.frameCount;
                 entry.LastUsedFrame = frame;
                 bool alreadyRecorded = entry.LastCullFrame == frame && entry.LastModelCount == source.ModelCount &&
-                    entry.LastViewProjection == camera.CullingMatrix;
+                    entry.LastViewProjection == camera.CullingMatrix && entry.LastExtrusion == boundsExtrusion;
                 if (!alreadyRecorded)
                 {
                     entry.LastCullFrame = frame;
                     entry.LastModelCount = source.ModelCount;
                     entry.LastViewProjection = camera.CullingMatrix;
+                    entry.LastExtrusion = boundsExtrusion;
                     GeometryUtility.CalculateFrustumPlanes(camera.CullingMatrix, entry.Planes);
 
                     using IComputeRenderGraphBuilder builder = renderGraph.AddComputePass<VisibilityPassData>(
@@ -531,8 +600,13 @@ namespace SdfRenderer
                     data.Shader = m_VisibilityShader;
                     data.ClearKernel = m_ClearVisibilityKernel;
                     data.CullKernel = m_CullVisibilityKernel;
+                    data.PrefixSumKernel = m_PrefixSumVisibilityKernel;
+                    data.ScatterKernel = m_ScatterVisibilityKernel;
                     data.ModelCount = source.ModelCount;
                     data.SceneView = camera.SceneView > 0.5f ? 1 : 0;
+                    data.CameraPosition = camera.Position;
+                    data.SortDistance = camera.Far;
+                    data.BoundsExtrusion = boundsExtrusion;
                     data.Plane0 = PlaneVector(entry.Planes[0]);
                     data.Plane1 = PlaneVector(entry.Planes[1]);
                     data.Plane2 = PlaneVector(entry.Planes[2]);
@@ -542,12 +616,21 @@ namespace SdfRenderer
                     data.Models = source.Models;
                     data.Visible = entry.Visible;
                     data.Args = entry.Args;
+                    data.Buckets = entry.Buckets;
+                    data.Counts = entry.Counts;
+                    data.Cursors = entry.Cursors;
                     data.ModelsHandle = renderGraph.ImportBuffer(source.Models);
                     data.VisibleHandle = renderGraph.ImportBuffer(entry.Visible);
                     data.ArgsHandle = renderGraph.ImportBuffer(entry.Args);
+                    data.BucketsHandle = renderGraph.ImportBuffer(entry.Buckets);
+                    data.CountsHandle = renderGraph.ImportBuffer(entry.Counts);
+                    data.CursorsHandle = renderGraph.ImportBuffer(entry.Cursors);
                     builder.UseBuffer(data.ModelsHandle, AccessFlags.Read);
                     builder.UseBuffer(data.VisibleHandle, AccessFlags.Write);
                     builder.UseBuffer(data.ArgsHandle, AccessFlags.Write);
+                    builder.UseBuffer(data.BucketsHandle, AccessFlags.ReadWrite);
+                    builder.UseBuffer(data.CountsHandle, AccessFlags.ReadWrite);
+                    builder.UseBuffer(data.CursorsHandle, AccessFlags.ReadWrite);
                     builder.AllowPassCulling(false);
                     builder.SetRenderFunc(static (VisibilityPassData pass, ComputeGraphContext context) =>
                         DispatchVisibility(pass, context.cmd));
@@ -561,10 +644,17 @@ namespace SdfRenderer
 
             private static void DispatchVisibility(VisibilityPassData data, ComputeCommandBuffer commandBuffer)
             {
+                int modelGroups = (data.ModelCount + 63) / 64;
+
                 commandBuffer.SetComputeBufferParam(data.Shader, data.ClearKernel, IndirectArgumentsId, data.Args);
+                commandBuffer.SetComputeBufferParam(data.Shader, data.ClearKernel, BucketCountsId, data.Counts);
                 commandBuffer.DispatchCompute(data.Shader, data.ClearKernel, 1, 1, 1);
+
                 commandBuffer.SetComputeIntParam(data.Shader, CullModelCountId, data.ModelCount);
                 commandBuffer.SetComputeIntParam(data.Shader, CullSceneViewId, data.SceneView);
+                commandBuffer.SetComputeVectorParam(data.Shader, CullCameraPositionId, data.CameraPosition);
+                commandBuffer.SetComputeFloatParam(data.Shader, CullSortDistanceId, data.SortDistance);
+                commandBuffer.SetComputeVectorParam(data.Shader, CullBoundsExtrusionId, data.BoundsExtrusion);
                 commandBuffer.SetComputeVectorParam(data.Shader, FrustumPlaneIds[0], data.Plane0);
                 commandBuffer.SetComputeVectorParam(data.Shader, FrustumPlaneIds[1], data.Plane1);
                 commandBuffer.SetComputeVectorParam(data.Shader, FrustumPlaneIds[2], data.Plane2);
@@ -572,10 +662,21 @@ namespace SdfRenderer
                 commandBuffer.SetComputeVectorParam(data.Shader, FrustumPlaneIds[4], data.Plane4);
                 commandBuffer.SetComputeVectorParam(data.Shader, FrustumPlaneIds[5], data.Plane5);
                 commandBuffer.SetComputeBufferParam(data.Shader, data.CullKernel, CullModelsId, data.Models);
-                commandBuffer.SetComputeBufferParam(data.Shader, data.CullKernel,
-                    SDFShaderIds.VisibleModelIndices, data.Visible);
                 commandBuffer.SetComputeBufferParam(data.Shader, data.CullKernel, IndirectArgumentsId, data.Args);
-                commandBuffer.DispatchCompute(data.Shader, data.CullKernel, (data.ModelCount + 63) / 64, 1, 1);
+                commandBuffer.SetComputeBufferParam(data.Shader, data.CullKernel, ModelBucketsId, data.Buckets);
+                commandBuffer.SetComputeBufferParam(data.Shader, data.CullKernel, BucketCountsId, data.Counts);
+                commandBuffer.DispatchCompute(data.Shader, data.CullKernel, modelGroups, 1, 1);
+
+                commandBuffer.SetComputeBufferParam(data.Shader, data.PrefixSumKernel, BucketCountsId, data.Counts);
+                commandBuffer.SetComputeBufferParam(data.Shader, data.PrefixSumKernel, BucketCursorsId, data.Cursors);
+                commandBuffer.DispatchCompute(data.Shader, data.PrefixSumKernel, 1, 1, 1);
+
+                commandBuffer.SetComputeIntParam(data.Shader, CullModelCountId, data.ModelCount);
+                commandBuffer.SetComputeBufferParam(data.Shader, data.ScatterKernel, ModelBucketsId, data.Buckets);
+                commandBuffer.SetComputeBufferParam(data.Shader, data.ScatterKernel, BucketCursorsId, data.Cursors);
+                commandBuffer.SetComputeBufferParam(data.Shader, data.ScatterKernel,
+                    SDFShaderIds.VisibleModelIndices, data.Visible);
+                commandBuffer.DispatchCompute(data.Shader, data.ScatterKernel, modelGroups, 1, 1);
             }
 
             private void PruneVisibility(int frame)
@@ -771,6 +872,7 @@ namespace SdfRenderer
                     Position = camera.transform.position,
                     Forward = camera.transform.forward,
                     Near = camera.nearClipPlane,
+                    Far = camera.farClipPlane,
                     Orthographic = camera.orthographic ? 1f : 0f,
                     SceneView = camera.cameraType == CameraType.SceneView ? 1f : 0f,
                     PixelWorldScale = pixelScale,

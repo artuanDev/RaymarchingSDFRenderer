@@ -12,13 +12,14 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7e1f9874b9a22204dbeee20d48b2fc17, type: 3}
   m_Name: SDFRenderSettings
   m_EditorClassIdentifier: SDF.Runtime::SdfRenderer.SDFRenderSettings
-  m_QualityPreset: 1
-  m_MaxSteps: 192
+  m_QualityPreset: 0
+  m_MaxSteps: 128
   m_MaxDistance: 1000
-  m_StepSafety: 0.8
-  m_SurfaceEpsilon: 0.0005
-  m_NormalEpsilon: 0.001
-  m_PixelTolerance: 0.5
+  m_StepSafety: 0.75
+  m_SurfaceEpsilon: 0.00075
+  m_NormalEpsilon: 0.0015
+  m_PixelTolerance: 0.7
+  m_ReuseDepthNormalPrepass: 1
   m_ReceiveUrpShadows: 1
   m_CastMainLightShadows: 1
   m_SdfSelfShadows: 1

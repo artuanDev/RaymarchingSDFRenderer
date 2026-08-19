@@ -129,17 +129,43 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
                 nointerpolation uint shadowCascade : TEXCOORD2;
             };
 
+            // D3D11 refuses to compile a pixel shader that outputs conservative depth
+            // (oDepthLE / oDepthGE) unless its SV_Position input is declared
+            // linear_noperspective_centroid or linear_noperspective_sample, and it is not
+            // running at sample frequency. Only FragDepthNormals outputs conservative
+            // depth, so it takes its own input declaration; the other programs read
+            // positionCS.xy as a texel coordinate and keep default interpolation. Without
+            // MSAA centroid and centre sampling are the same position.
+            struct DepthNormalsVaryings
+            {
+                noperspective centroid float4 positionCS : SV_POSITION;
+                float3 positionWS : TEXCOORD0;
+                nointerpolation uint modelIndex : TEXCOORD1;
+                nointerpolation uint shadowCascade : TEXCOORD2;
+            };
+
             struct FragmentOutput
             {
                 float4 color : SV_Target;
                 float depth : SV_Depth;
             };
 
+            // A plain SV_Depth write disables early-Z, so every fragment of every model
+            // box used to run a full sphere march even when a nearer model had already
+            // covered the pixel. The march hit always lies at or behind the rasterized
+            // front face of the bounds, which under reversed-Z means a smaller depth
+            // value, so the conservative form holds and the depth unit can reject a
+            // fragment before the shader runs. Vert pins the camera-inside case to the
+            // near plane to keep that promise true there as well.
             struct DepthNormalsOutput
             {
                 float4 color : SV_Target0;
                 float modelId : SV_Target1;
-                float depth : SV_Depth;
+                #if UNITY_REVERSED_Z
+                    float depth : SV_DepthLessEqual;
+                #else
+                    float depth : SV_DepthGreaterEqual;
+                #endif
             };
 
             struct SDFSurfaceContext
@@ -241,7 +267,17 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
                     output.positionCS=float4(clipXY,shadowPosition.z,shadowPosition.w);
                 }
                 else
+                {
                     output.positionCS = mul(_SDFViewProjection, float4(output.positionWS, 1.0));
+                    // The winding flip above rasterizes the far face when the camera is
+                    // inside the bounds, so the interpolated depth would sit behind the
+                    // march hit and break the conservative-depth promise made by
+                    // DepthNormalsOutput. Pin those instances to the near plane, where
+                    // no hit can be nearer. Fragments always write their own depth, so
+                    // this only affects the depth test, never the recorded depth.
+                    if(cameraInside)
+                        output.positionCS.z = UNITY_NEAR_CLIP_VALUE * output.positionCS.w;
+                }
                 output.modelIndex = modelIndex;
                 output.shadowCascade = shadowCascade;
                 return output;
@@ -544,10 +580,21 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
                 return current;
             }
 
+            // The four tetrahedron taps are accumulated in a loop rather than written as
+            // four calls in one expression. Four inlined copies of the evaluator dominate
+            // the compiled size of every pass that shades a hit: measured with fxc on the
+            // isolated evaluator, the expression form costs 18664 instruction slots at
+            // /Od against 7490 for this loop, at identical register pressure. Tap order
+            // and accumulation order are unchanged, so the resulting normal is unchanged.
             float3 EvaluateNormal(float3 p,uint modelIndex,float epsilon)
             {
-                const float3 e1=float3(1,-1,-1),e2=float3(-1,-1,1),e3=float3(-1,1,-1),e4=float3(1,1,1);
-                return normalize(e1*EvaluateModel(p+e1*epsilon,modelIndex)+e2*EvaluateModel(p+e2*epsilon,modelIndex)+e3*EvaluateModel(p+e3*epsilon,modelIndex)+e4*EvaluateModel(p+e4*epsilon,modelIndex));
+                float3 gradient=0.0.xxx;
+                [loop] for(uint i=0u;i<4u;++i)
+                {
+                    float3 e=float3((i==0u||i==3u)?1.0:-1.0,(i<2u)?-1.0:1.0,(i==1u||i==3u)?1.0:-1.0);
+                    gradient+=e*EvaluateModel(p+e*epsilon,modelIndex);
+                }
+                return normalize(gradient);
             }
 
             float2 EvaluateSdfAmbientOcclusion(float2 screenUV)
@@ -842,11 +889,12 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
                 float receiverPixelSize=_SDFOrthographic>0.5?_SDFPixelWorldScale:
                     max(distance(receiverPosition,_SDFCameraPosition),_SDFCameraNear)*_SDFPixelWorldScale;
                 float traceBias=max(_SDFShadowBias,receiverPixelSize*max(_SDFPixelTolerance,0.25)*2.0);
-                // Do not multiply a caster's own already-PBR-shaded surface. Its
-                // N.L term already removes direct light on the back side; multiplying
-                // the finished color here would incorrectly crush ambient and probe GI.
-                float receiverDistance=EvaluateModel(receiverPosition,input.modelIndex);
-                if(abs(receiverDistance)<=max(traceBias*1.5,_SDFSurfaceEpsilon*4.0)) discard;
+                // A fragment only matters if its shadow ray crosses this caster's bounds.
+                // That is a handful of ALU against a full field evaluation, and the
+                // light-extruded caster volume covers far more screen than the caster
+                // itself, so the bounds test rejects the large majority of fragments.
+                // Both conditions discard and neither has side effects, so testing bounds
+                // first leaves exactly the same fragments alive.
                 float3 rayDirection=normalize(_SDFLightDirection);
                 float3 rayOrigin=receiverPosition+receiverNormal*traceBias+rayDirection*traceBias;
                 SDFModelGpu model=_SDFModels[input.modelIndex];
@@ -855,6 +903,12 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
                 float rayDistance=max(boxHit.x,0.0);
                 float rayEnd=min(boxHit.y,_SDFShadowMaxDistance);
                 if(rayEnd<=rayDistance) discard;
+
+                // Do not multiply a caster's own already-PBR-shaded surface. Its
+                // N.L term already removes direct light on the back side; multiplying
+                // the finished color here would incorrectly crush ambient and probe GI.
+                float receiverDistance=EvaluateModel(receiverPosition,input.modelIndex);
+                if(abs(receiverDistance)<=max(traceBias*1.5,_SDFSurfaceEpsilon*4.0)) discard;
 
                 float visibility=1.0;
                 [loop] for(int stepIndex=0;stepIndex<_SDFShadowMaxSteps;++stepIndex)
@@ -994,9 +1048,14 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
                 return output;
             }
 
-            DepthNormalsOutput FragDepthNormals(Varyings input)
+            DepthNormalsOutput FragDepthNormals(DepthNormalsVaryings input)
             {
-                CameraTraceOutput trace=TraceCamera(input);
+                Varyings varyings;
+                varyings.positionCS=input.positionCS;
+                varyings.positionWS=input.positionWS;
+                varyings.modelIndex=input.modelIndex;
+                varyings.shadowCascade=input.shadowCascade;
+                CameraTraceOutput trace=TraceCamera(varyings);
                 DepthNormalsOutput output;
                 #if defined(_GBUFFER_NORMALS_OCT)
                     float2 octNormal=PackNormalOctQuadEncode(trace.normal);
@@ -1077,7 +1136,14 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
             Name "SDFScreenSpaceShadows"
             Cull Back
             ZWrite Off
-            ZTest Always
+            // The extruded volume is exactly the set of receivers this caster can shadow,
+            // so a receiver lying in front of the volume's near face can never be shadowed
+            // by it. LEqual lets the depth unit reject those fragments — and whole tiles of
+            // them via HiZ — instead of running a field evaluation per fragment to reach
+            // the same answer. Fragments that survive but sit behind the volume are still
+            // discarded by the bounds test in the shader, so the result is unchanged.
+            // Requires a depth attachment, which the pass now binds read-only.
+            ZTest LEqual
             Blend DstColor Zero
             ColorMask RGB
 

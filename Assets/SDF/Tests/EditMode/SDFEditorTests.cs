@@ -74,8 +74,10 @@ namespace SdfRenderer.Tests
             Assert.That(update.HasKernel("UpdateBenchmark"), Is.True);
             ComputeShader culling = Resources.Load<ComputeShader>("SDFModelCull");
             Assert.That(culling, Is.Not.Null);
-            Assert.That(culling.HasKernel("ClearArguments"), Is.True);
-            Assert.That(culling.HasKernel("CullModels"), Is.True);
+            Assert.That(culling.HasKernel("ClearCounts"), Is.True);
+            Assert.That(culling.HasKernel("CullAndCount"), Is.True);
+            Assert.That(culling.HasKernel("PrefixSumBuckets"), Is.True);
+            Assert.That(culling.HasKernel("ScatterModels"), Is.True);
         }
 
         [Test]

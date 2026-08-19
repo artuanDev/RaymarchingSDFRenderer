@@ -1,6 +1,19 @@
-#pragma kernel ClearArguments
-#pragma kernel CullModels
+// Frustum culls models and emits their indices ordered front to back.
+//
+// Draw order matters because FragDepthNormals declares a conservative depth
+// output, which lets the depth unit reject a fragment before the sphere march
+// runs. That rejection only helps when something nearer has already been
+// written, so the visible list is bucket sorted by distance to the camera.
+// A counting sort over a fixed bucket count is enough: early-Z needs a good
+// ordering, not an exact one, and this costs four small dispatches.
+#pragma kernel ClearCounts
+#pragma kernel CullAndCount
+#pragma kernel PrefixSumBuckets
+#pragma kernel ScatterModels
 #pragma target 5.0
+
+#define SDF_SORT_BUCKETS 256
+#define SDF_CULLED_BUCKET 0xFFFFFFFFu
 
 struct ModelGpu
 {
@@ -11,9 +24,20 @@ struct ModelGpu
 StructuredBuffer<ModelGpu> _SDFCullModels;
 RWStructuredBuffer<uint> _SDFVisibleModelIndices;
 RWStructuredBuffer<uint> _SDFIndirectArguments;
+RWStructuredBuffer<uint> _SDFModelBuckets;
+RWStructuredBuffer<uint> _SDFBucketCounts;
+RWStructuredBuffer<uint> _SDFBucketCursors;
 
 uint _SDFCullModelCount;
 uint _SDFCullSceneView;
+float3 _SDFCullCameraPosition;
+float _SDFCullSortDistance;
+// Swept bounds for passes whose rasterized volume is larger than the model. The
+// screen-space shadow pass extrudes each caster along the light, and a caster
+// outside the view frustum can still shadow an on-screen receiver, so it must be
+// culled against the extruded volume rather than the model bounds. Zero for the
+// passes that rasterize the bounds as authored. Mirrors the extrusion in Vert.
+float3 _SDFCullBoundsExtrusion;
 float4 _SDFFrustumPlane0;
 float4 _SDFFrustumPlane1;
 float4 _SDFFrustumPlane2;
@@ -21,8 +45,7 @@ float4 _SDFFrustumPlane3;
 float4 _SDFFrustumPlane4;
 float4 _SDFFrustumPlane5;
 
-groupshared uint _SDFGroupVisible[64];
-groupshared uint _SDFGroupOutputBase;
+groupshared uint _SDFScan[SDF_SORT_BUCKETS];
 
 bool OutsidePlane(float3 center, float3 extents, float4 plane)
 {
@@ -30,49 +53,85 @@ bool OutsidePlane(float3 center, float3 extents, float4 plane)
     return dot(plane.xyz, center) + plane.w + radius < 0.0;
 }
 
-[numthreads(1, 1, 1)]
-void ClearArguments(uint3 dispatchThreadId : SV_DispatchThreadID)
+[numthreads(SDF_SORT_BUCKETS, 1, 1)]
+void ClearCounts(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
-    _SDFIndirectArguments[0] = 36u;
-    _SDFIndirectArguments[1] = 0u;
-    _SDFIndirectArguments[2] = 0u;
-    _SDFIndirectArguments[3] = 0u;
+    _SDFBucketCounts[dispatchThreadId.x] = 0u;
+    if (dispatchThreadId.x == 0u)
+    {
+        _SDFIndirectArguments[0] = 36u;
+        _SDFIndirectArguments[1] = 0u;
+        _SDFIndirectArguments[2] = 0u;
+        _SDFIndirectArguments[3] = 0u;
+    }
 }
 
 [numthreads(64, 1, 1)]
-void CullModels(uint3 dispatchThreadId : SV_DispatchThreadID, uint groupIndex : SV_GroupIndex)
+void CullAndCount(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
     uint modelIndex = dispatchThreadId.x;
-    bool visible = modelIndex < _SDFCullModelCount;
-    if (visible)
+    if (modelIndex >= _SDFCullModelCount)
+        return;
+
+    ModelGpu model = _SDFCullModels[modelIndex];
+    float3 minimum = model.BoundsMinAndShapeStart.xyz;
+    float3 maximum = model.BoundsMaxAndShapeCount.xyz;
+    minimum = min(minimum, minimum + _SDFCullBoundsExtrusion);
+    maximum = max(maximum, maximum + _SDFCullBoundsExtrusion);
+    float3 center = (minimum + maximum) * 0.5;
+    float3 extents = max((maximum - minimum) * 0.5, 0.0.xxx);
+    bool visible = !(_SDFCullSceneView != 0u && model.BoundsMaxAndShapeCount.w < 0.0) &&
+        !OutsidePlane(center, extents, _SDFFrustumPlane0) &&
+        !OutsidePlane(center, extents, _SDFFrustumPlane1) &&
+        !OutsidePlane(center, extents, _SDFFrustumPlane2) &&
+        !OutsidePlane(center, extents, _SDFFrustumPlane3) &&
+        !OutsidePlane(center, extents, _SDFFrustumPlane4) &&
+        !OutsidePlane(center, extents, _SDFFrustumPlane5);
+    if (!visible)
     {
-        ModelGpu model = _SDFCullModels[modelIndex];
-        visible = !(_SDFCullSceneView != 0u && model.BoundsMaxAndShapeCount.w < 0.0);
-        float3 minimum = model.BoundsMinAndShapeStart.xyz;
-        float3 maximum = model.BoundsMaxAndShapeCount.xyz;
-        float3 center = (minimum + maximum) * 0.5;
-        float3 extents = max((maximum - minimum) * 0.5, 0.0.xxx);
-        visible = visible &&
-            !OutsidePlane(center, extents, _SDFFrustumPlane0) &&
-            !OutsidePlane(center, extents, _SDFFrustumPlane1) &&
-            !OutsidePlane(center, extents, _SDFFrustumPlane2) &&
-            !OutsidePlane(center, extents, _SDFFrustumPlane3) &&
-            !OutsidePlane(center, extents, _SDFFrustumPlane4) &&
-            !OutsidePlane(center, extents, _SDFFrustumPlane5);
+        _SDFModelBuckets[modelIndex] = SDF_CULLED_BUCKET;
+        return;
     }
 
-    _SDFGroupVisible[groupIndex] = visible ? 1u : 0u;
+    // Distance to the nearest point of the bounds, so a large model that the
+    // camera is close to sorts ahead of a small distant one it encloses.
+    float3 delta = max(max(minimum - _SDFCullCameraPosition, _SDFCullCameraPosition - maximum), 0.0.xxx);
+    float distanceToBounds = length(delta);
+    float normalized = saturate(distanceToBounds / max(_SDFCullSortDistance, 1e-4));
+    uint bucket = min((uint)(normalized * (float)(SDF_SORT_BUCKETS - 1)), SDF_SORT_BUCKETS - 1u);
+    _SDFModelBuckets[modelIndex] = bucket;
+    InterlockedAdd(_SDFBucketCounts[bucket], 1u);
+    InterlockedAdd(_SDFIndirectArguments[1], 1u);
+}
+
+[numthreads(SDF_SORT_BUCKETS, 1, 1)]
+void PrefixSumBuckets(uint3 dispatchThreadId : SV_DispatchThreadID, uint groupIndex : SV_GroupIndex)
+{
+    uint own = _SDFBucketCounts[groupIndex];
+    _SDFScan[groupIndex] = own;
     GroupMemoryBarrierWithGroupSync();
-    [unroll] for (uint offset = 1u; offset < 64u; offset <<= 1u)
+    [unroll] for (uint offset = 1u; offset < SDF_SORT_BUCKETS; offset <<= 1u)
     {
-        uint preceding = groupIndex >= offset ? _SDFGroupVisible[groupIndex - offset] : 0u;
+        uint preceding = groupIndex >= offset ? _SDFScan[groupIndex - offset] : 0u;
         GroupMemoryBarrierWithGroupSync();
-        _SDFGroupVisible[groupIndex] += preceding;
+        _SDFScan[groupIndex] += preceding;
         GroupMemoryBarrierWithGroupSync();
     }
-    if (groupIndex == 63u)
-        InterlockedAdd(_SDFIndirectArguments[1], _SDFGroupVisible[63], _SDFGroupOutputBase);
-    GroupMemoryBarrierWithGroupSync();
-    if (visible)
-        _SDFVisibleModelIndices[_SDFGroupOutputBase + _SDFGroupVisible[groupIndex] - 1u] = modelIndex;
+    // Seed each bucket's write cursor with its exclusive prefix so the scatter
+    // pass can claim slots with a single atomic per model.
+    _SDFBucketCursors[groupIndex] = _SDFScan[groupIndex] - own;
+}
+
+[numthreads(64, 1, 1)]
+void ScatterModels(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    uint modelIndex = dispatchThreadId.x;
+    if (modelIndex >= _SDFCullModelCount)
+        return;
+    uint bucket = _SDFModelBuckets[modelIndex];
+    if (bucket == SDF_CULLED_BUCKET)
+        return;
+    uint slot;
+    InterlockedAdd(_SDFBucketCursors[bucket], 1u, slot);
+    _SDFVisibleModelIndices[slot] = modelIndex;
 }
