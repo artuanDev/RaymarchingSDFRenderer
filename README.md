@@ -13,6 +13,16 @@ This project contains an analytic, GPU-buffer-driven signed-distance-field rende
 7. Create a material with **Assets > Create > SDF > Material** and assign it to a shape.
 8. Create a custom surface module with **Assets > Create > SDF Shader**.
 
+The built-in **URP Lit** material supports a Base Map, tangent-space Normal Map with strength,
+Metallic Map, and a separate linear Roughness Map. SDFs use their procedural local XZ coordinates
+as UVs and derive the tangent frame analytically from the contributing shape. Metallic maps use the
+red channel; roughness maps use the red channel and are converted to smoothness with the material's
+Smoothness value acting as a multiplier.
+
+Open `Assets/SDF/Samples/SDFHeroDemo.unity` for the capture-ready portfolio scene. Enter Play Mode
+to run its seamless 12-second camera and CSG animation loop, or rebuild all generated hero assets with
+**Tools > SDF > Build Hero Demo Scene**.
+
 The renderer never creates a reduced-resolution SDF target. Invisible instanced AABB geometry restricts fragment work, while the shader analytically sphere-traces inside each model volume and writes the hit's device depth.
 
 URP depth/normal prepasses write the winning model ID and are resolved by one fullscreen PBR pass when supported, avoiding a second 10,000-instance AABB draw and full trace while retaining native resolution and an analytic fallback. Scene-view selection uses a refittable conservative-bounds BVH, so high-count animated scenes do not raymarch every shape merely to determine what is under the mouse.

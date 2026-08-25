@@ -50,7 +50,7 @@ namespace SdfRenderer
         private const int ModelStride = 32;
         private const int ShapeStride = 176;
         private const int ModifierStride = 48;
-        private const int MaterialStride = 112;
+        private const int MaterialStride = 128;
 
         private static readonly int ModelCountId = Shader.PropertyToID("_ModelCount");
         private static readonly int MaterialCountId = Shader.PropertyToID("_MaterialCount");

@@ -69,6 +69,10 @@ namespace SdfRenderer.Tests
             {
                 Assert.That(material.ShadingModel, Is.EqualTo(SDFShadingModel.PbrLike));
                 Assert.That(material.Occlusion, Is.EqualTo(1f));
+                Assert.That(material.NormalScale, Is.EqualTo(1f));
+                Assert.That(material.NormalMap, Is.Null);
+                Assert.That(material.MetallicMap, Is.Null);
+                Assert.That(material.RoughnessMap, Is.Null);
                 Assert.That(settings.ReceiveUrpShadows, Is.True);
                 Assert.That(settings.CastMainLightShadows, Is.True);
                 Assert.That(settings.UseUrpScreenSpaceAo, Is.True);

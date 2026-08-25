@@ -57,6 +57,7 @@ namespace SdfRenderer
             public Vector4 Custom0;
             public Vector4 Custom1;
             public Vector4 CustomShaderTextureIndices;
+            public Vector4 PbrTextureIndicesAndNormalScale;
         }
 
         private static readonly ProfilerMarker CompileMarker = new ProfilerMarker("SDF/CPU Compile Scene");
@@ -78,6 +79,8 @@ namespace SdfRenderer
             public int ModifierCount;
             public Bounds BaseLocalBounds;
             public Bounds LocalBounds;
+            public float BaseLocalRadius;
+            public float LocalRadius;
             public SDFOperationType OperationType;
             public float Smoothness;
             public bool CanUseBoundsDistance;
@@ -99,6 +102,11 @@ namespace SdfRenderer
             public Vector3 LocalExtents;
             public Vector3 ClipCenter;
             public Vector3 ClipExtents;
+            // Rotation-invariant companions to the extents above. See
+            // SDFShape.GetLocalBoundingRadius for why the world AABB takes the smaller of
+            // the two bounds per axis.
+            public float BaseLocalRadius;
+            public float LocalRadius;
             public Vector4 LocalToWorld0;
             public Vector4 LocalToWorld1;
             public Vector4 LocalToWorld2;
@@ -142,15 +150,15 @@ namespace SdfRenderer
                     localToWorld.m00 * center.x + localToWorld.m01 * center.y + localToWorld.m02 * center.z + localToWorld.m03,
                     localToWorld.m10 * center.x + localToWorld.m11 * center.y + localToWorld.m12 * center.z + localToWorld.m13,
                     localToWorld.m20 * center.x + localToWorld.m21 * center.y + localToWorld.m22 * center.z + localToWorld.m23);
-                Vector3 worldExtents = new Vector3(
-                    math.abs(localToWorld.m00) * extents.x + math.abs(localToWorld.m01) * extents.y + math.abs(localToWorld.m02) * extents.z,
-                    math.abs(localToWorld.m10) * extents.x + math.abs(localToWorld.m11) * extents.y + math.abs(localToWorld.m12) * extents.z,
-                    math.abs(localToWorld.m20) * extents.x + math.abs(localToWorld.m21) * extents.y + math.abs(localToWorld.m22) * extents.z);
-                worldExtents += Vector3.one * 0.002f;
-
                 GetScaleRange(localToWorld, worldToLocal, out float distanceScale, out float maximumScale);
                 input.DistanceScale = distanceScale;
                 input.MaximumScale = maximumScale;
+
+                Vector3 worldExtents = (Vector3)WorldExtents(
+                    new float3(localToWorld.m00, localToWorld.m01, localToWorld.m02),
+                    new float3(localToWorld.m10, localToWorld.m11, localToWorld.m12),
+                    new float3(localToWorld.m20, localToWorld.m21, localToWorld.m22),
+                    extents, input.LocalRadius, maximumScale) + Vector3.one * 0.002f;
 
                 shape.TypeOperationSmoothModifierStart.z = input.Smoothness * distanceScale;
                 shape.MaterialModifierCountDistanceScaleBoundsScale.z = distanceScale;
@@ -226,6 +234,7 @@ namespace SdfRenderer
                 ShapeTransformInput input = Inputs[shapeIndex];
                 float3 center = input.BaseLocalCenter;
                 float3 extents = input.BaseLocalExtents;
+                float boundingRadius = input.BaseLocalRadius;
                 int modifierStart = (int)shape.TypeOperationSmoothModifierStart.w;
                 int modifierCount = (int)shape.MaterialModifierCountDistanceScaleBoundsScale.y;
                 bool canUseBoundsDistance = true;
@@ -241,43 +250,74 @@ namespace SdfRenderer
                     canUseBoundsDistance &= type != 5 && type != 6 && type != 7 && type != 8;
                     infiniteRepeat |= type == 5;
 
+                    // A modifier that grows the bounds by some delta moves any surface point
+                    // outward by at most the length of that delta, so adding that length to
+                    // the radius stays conservative. Modifiers that restructure the bounds
+                    // instead fall back to the new box diagonal, which is always valid.
                     if (type == 0 || type == 1)
+                    {
                         extents += amount;
+                        boundingRadius += amount;
+                    }
                     else if (type == 2)
-                        extents += math.abs(new float3(modifier.Vector.x, modifier.Vector.y, modifier.Vector.z)) * axisMask;
+                    {
+                        float3 delta = math.abs(new float3(modifier.Vector.x, modifier.Vector.y, modifier.Vector.z)) * axisMask;
+                        extents += delta;
+                        boundingRadius += math.length(delta);
+                    }
                     else if (type == 3)
                     {
                         float3 offset = math.abs(new float3(modifier.Vector.x, modifier.Vector.y, modifier.Vector.z)) * axisMask;
                         if ((axes & 1) != 0) { extents.x += math.abs(center.x) + offset.x; center.x = 0f; }
                         if ((axes & 2) != 0) { extents.y += math.abs(center.y) + offset.y; center.y = 0f; }
                         if ((axes & 4) != 0) { extents.z += math.abs(center.z) + offset.z; center.z = 0f; }
+                        boundingRadius = math.length(extents);
                     }
                     else if (type == 4)
-                        extents += math.abs(new float3(modifier.Vector.x, modifier.Vector.y, modifier.Vector.z)) *
+                    {
+                        float3 delta = math.abs(new float3(modifier.Vector.x, modifier.Vector.y, modifier.Vector.z)) *
                             new float3(modifier.Count.x, modifier.Count.y, modifier.Count.z) * axisMask;
+                        extents += delta;
+                        boundingRadius += math.length(delta);
+                    }
                     else if (type == 6 || type == 7)
                     {
+                        // Twist and bend already produce an isotropic bound about the local
+                        // origin, so the scalar radius is tighter than the diagonal of the
+                        // cube they write into extents.
                         float radius = math.length(center) + math.length(extents);
+                        boundingRadius = math.length(center) + boundingRadius;
                         center = float3.zero;
                         extents = radius;
                     }
                     else if (type == 8)
                     {
+                        // Revolution produces a surface of revolution about local Y, so it
+                        // fits the cylinder of radius `radius` and half height extents.y.
                         float radius = amount + math.abs(center.x) + extents.x;
                         center = new float3(0f, center.y, 0f);
                         extents = new float3(radius, extents.y, radius);
+                        boundingRadius = math.sqrt(radius * radius + extents.y * extents.y);
                     }
                     else if (type == 9)
-                        extents += amount * axisMask;
+                    {
+                        float3 delta = amount * axisMask;
+                        extents += delta;
+                        boundingRadius += math.length(delta);
+                    }
+                    // The box diagonal is always a valid radius, so never keep a looser one.
+                    boundingRadius = math.min(boundingRadius, math.length(extents));
                 }
 
                 if (infiniteRepeat)
                 {
                     center = input.ClipCenter;
                     extents = input.ClipExtents;
+                    boundingRadius = math.length(extents);
                 }
                 input.LocalCenter = center;
                 input.LocalExtents = extents;
+                input.LocalRadius = boundingRadius;
                 input.CanUseBoundsDistance = canUseBoundsDistance ? 1 : 0;
                 Inputs[shapeIndex] = input;
                 if (UpdateWorldBounds == 0)
@@ -289,10 +329,11 @@ namespace SdfRenderer
                     math.dot(new float3(input.LocalToWorld0.x, input.LocalToWorld0.y, input.LocalToWorld0.z), center) + input.LocalToWorld0.w,
                     math.dot(new float3(input.LocalToWorld1.x, input.LocalToWorld1.y, input.LocalToWorld1.z), center) + input.LocalToWorld1.w,
                     math.dot(new float3(input.LocalToWorld2.x, input.LocalToWorld2.y, input.LocalToWorld2.z), center) + input.LocalToWorld2.w);
-                float3 worldExtents = new float3(
-                    math.abs(input.LocalToWorld0.x) * extents.x + math.abs(input.LocalToWorld0.y) * extents.y + math.abs(input.LocalToWorld0.z) * extents.z,
-                    math.abs(input.LocalToWorld1.x) * extents.x + math.abs(input.LocalToWorld1.y) * extents.y + math.abs(input.LocalToWorld1.z) * extents.z,
-                    math.abs(input.LocalToWorld2.x) * extents.x + math.abs(input.LocalToWorld2.y) * extents.y + math.abs(input.LocalToWorld2.z) * extents.z) + 0.002f;
+                float3 worldExtents = WorldExtents(
+                    new float3(input.LocalToWorld0.x, input.LocalToWorld0.y, input.LocalToWorld0.z),
+                    new float3(input.LocalToWorld1.x, input.LocalToWorld1.y, input.LocalToWorld1.z),
+                    new float3(input.LocalToWorld2.x, input.LocalToWorld2.y, input.LocalToWorld2.z),
+                    extents, boundingRadius, input.MaximumScale) + 0.002f;
                 updatedShape.BoundsMin = new Vector4(worldCenter.x - worldExtents.x, worldCenter.y - worldExtents.y, worldCenter.z - worldExtents.z, 0f);
                 updatedShape.BoundsMax = new Vector4(worldCenter.x + worldExtents.x, worldCenter.y + worldExtents.y, worldCenter.z + worldExtents.z, 0f);
                 Shapes[shapeIndex] = updatedShape;
@@ -597,6 +638,8 @@ namespace SdfRenderer
             bool infiniteRepeat = false;
             Bounds baseLocalBounds = shape.GetLocalBounds();
             Bounds localBounds = baseLocalBounds;
+            float baseLocalRadius = shape.GetLocalBoundingRadius();
+            float localRadius = baseLocalRadius;
 
             for (int i = 0; i < m_ModifierScratch.Count; ++i)
             {
@@ -605,18 +648,21 @@ namespace SdfRenderer
                     continue;
                 canUseBoundsDistance &= !modifier.InvalidatesBoundsDistance;
                 infiniteRepeat |= modifier.Type == SDFModifierType.InfiniteRepeat;
-                ExpandBoundsForModifier(ref localBounds, modifier);
+                ExpandBoundsForModifier(ref localBounds, ref localRadius, modifier);
                 m_Modifiers.Add(new ModifierGpu { TypeAxesAmount = modifier.PackA(), Vector = modifier.PackB(), Count = modifier.PackC() });
                 m_ModifierBindings.Add(modifier);
                 m_ModifierVersions.Add(modifier.DataVersion);
                 m_ModifierShapeIndices.Add(shapeIndex);
             }
             if (infiniteRepeat)
+            {
                 localBounds = shape.ClipBounds;
+                localRadius = localBounds.extents.magnitude;
+            }
 
-            Bounds worldBounds = TransformBounds(shape.transform.localToWorldMatrix, localBounds);
-            worldBounds.Expand(0.004f);
             shape.GetScaleRange(out float distanceScale, out float maximumScale);
+            Bounds worldBounds = TransformBounds(shape.transform.localToWorldMatrix, localBounds, localRadius, maximumScale);
+            worldBounds.Expand(0.004f);
             float boundsScale = canUseBoundsDistance ? Mathf.Clamp01(distanceScale / maximumScale) : 0f;
             SDFOperation operation = shape.GetComponent<SDFOperation>();
             SDFOperationType operationType = operation != null && operation.isActiveAndEnabled ? operation.Type : SDFOperationType.Union;
@@ -653,6 +699,8 @@ namespace SdfRenderer
                 ModifierCount = m_Modifiers.Count - modifierStart,
                 BaseLocalBounds = baseLocalBounds,
                 LocalBounds = localBounds,
+                BaseLocalRadius = baseLocalRadius,
+                LocalRadius = localRadius,
                 OperationType = operationType,
                 Smoothness = operation != null ? operation.Smoothness : 0f,
                 CanUseBoundsDistance = canUseBoundsDistance
@@ -709,7 +757,8 @@ namespace SdfRenderer
             ModelMetallicSmoothness = new Vector4((float)SDFShadingModel.PbrLike, 0f, 0.5f, 1f),
             Custom0 = Vector4.zero,
             Custom1 = Vector4.zero,
-            CustomShaderTextureIndices = new Vector4(-1f, 0f, 0f, 0f)
+            CustomShaderTextureIndices = new Vector4(-1f, 0f, 0f, 0f),
+            PbrTextureIndicesAndNormalScale = new Vector4(0f, 0f, 0f, 1f)
         };
 
         private MaterialGpu CreateMaterialGpu(SDFMaterialAsset material)
@@ -727,7 +776,9 @@ namespace SdfRenderer
                 ModelMetallicSmoothness = new Vector4((float)material.ShadingModel, material.Metallic, material.Smoothness, material.Occlusion),
                 Custom0 = material.Custom0,
                 Custom1 = material.Custom1,
-                CustomShaderTextureIndices = new Vector4(material.CustomShader != null ? SDFCustomShaderRegistry.Resolve(material.CustomShader.StableId) : -1, GetTextureIndex(material.BaseMap), 0f, 0f)
+                CustomShaderTextureIndices = new Vector4(material.CustomShader != null ? SDFCustomShaderRegistry.Resolve(material.CustomShader.StableId) : -1, GetTextureIndex(material.BaseMap), 0f, 0f),
+                PbrTextureIndicesAndNormalScale = new Vector4(GetTextureIndex(material.NormalMap),
+                    GetTextureIndex(material.MetallicMap), GetTextureIndex(material.RoughnessMap), material.NormalScale)
             };
         }
 
@@ -776,6 +827,8 @@ namespace SdfRenderer
                 binding.CustomMaterialVersion = customMaterialVersion;
                 Bounds baseLocalBounds = component.GetLocalBounds();
                 Bounds localBounds = baseLocalBounds;
+                float baseLocalRadius = component.GetLocalBoundingRadius();
+                float localRadius = baseLocalRadius;
                 bool canUseBoundsDistance = true;
                 bool infiniteRepeat = false;
                 int modifierEnd = binding.ModifierStart + binding.ModifierCount;
@@ -786,13 +839,18 @@ namespace SdfRenderer
                         continue;
                     canUseBoundsDistance &= !modifier.InvalidatesBoundsDistance;
                     infiniteRepeat |= modifier.Type == SDFModifierType.InfiniteRepeat;
-                    ExpandBoundsForModifier(ref localBounds, modifier);
+                    ExpandBoundsForModifier(ref localBounds, ref localRadius, modifier);
                 }
                 if (infiniteRepeat)
+                {
                     localBounds = component.ClipBounds;
+                    localRadius = localBounds.extents.magnitude;
+                }
 
                 binding.BaseLocalBounds = baseLocalBounds;
                 binding.LocalBounds = localBounds;
+                binding.BaseLocalRadius = baseLocalRadius;
+                binding.LocalRadius = localRadius;
                 binding.CanUseBoundsDistance = canUseBoundsDistance;
                 m_ShapeBindings[i] = binding;
 
@@ -803,6 +861,8 @@ namespace SdfRenderer
                 input.LocalExtents = localBounds.extents;
                 input.ClipCenter = component.ClipBounds.center;
                 input.ClipExtents = component.ClipBounds.extents;
+                input.BaseLocalRadius = baseLocalRadius;
+                input.LocalRadius = localRadius;
                 input.CanUseBoundsDistance = canUseBoundsDistance ? 1 : 0;
                 m_ShapeTransformInputs[i] = input;
 
@@ -820,7 +880,9 @@ namespace SdfRenderer
                 shape.Parameters3 = p3;
                 shape.TypeOperationSmoothModifierStart.x = (float)component.ShapeType;
                 shape.MaterialModifierCountDistanceScaleBoundsScale.x = materialIndex;
-                Bounds worldBounds = TransformBounds(component.transform.localToWorldMatrix, localBounds);
+                component.GetScaleRange(out float _, out float shapeMaximumScale);
+                Bounds worldBounds = TransformBounds(component.transform.localToWorldMatrix, localBounds,
+                    localRadius, shapeMaximumScale);
                 worldBounds.Expand(0.004f);
                 shape.BoundsMin = worldBounds.min;
                 shape.BoundsMax = worldBounds.max;
@@ -1003,6 +1065,8 @@ namespace SdfRenderer
                     LocalExtents = binding.LocalBounds.extents,
                     ClipCenter = binding.Shape.ClipBounds.center,
                     ClipExtents = binding.Shape.ClipBounds.extents,
+                    BaseLocalRadius = binding.BaseLocalRadius,
+                    LocalRadius = binding.LocalRadius,
                     LocalToWorld0 = new Vector4(localToWorld.m00, localToWorld.m01, localToWorld.m02, localToWorld.m03),
                     LocalToWorld1 = new Vector4(localToWorld.m10, localToWorld.m11, localToWorld.m12, localToWorld.m13),
                     LocalToWorld2 = new Vector4(localToWorld.m20, localToWorld.m21, localToWorld.m22, localToWorld.m23),
@@ -1053,7 +1117,7 @@ namespace SdfRenderer
                 return existing;
             if (m_Textures.Count >= SDFShaderIds.Textures.Length)
             {
-                Debug.LogWarning($"SDF supports {SDFShaderIds.Textures.Length} simultaneously bound 2D textures per scene batch. '{texture.name}' uses white fallback.", texture);
+                Debug.LogWarning($"SDF supports {SDFShaderIds.Textures.Length - 1} user-assigned 2D textures per scene batch plus its white fallback. '{texture.name}' uses the fallback.", texture);
                 return 0;
             }
             int index = m_Textures.Count;
@@ -1064,16 +1128,25 @@ namespace SdfRenderer
 
         private static bool IsRenderable(SDFShape shape) => shape != null && shape.isActiveAndEnabled && shape.gameObject.activeInHierarchy;
 
-        private static void ExpandBoundsForModifier(ref Bounds bounds, SDFModifier modifier)
+        // boundingRadius travels with the bounds so the managed compile stays in lockstep
+        // with PackModifierBoundsJob, which applies the same rules to the packed modifier
+        // records. A modifier that grows the bounds by some delta moves any surface point
+        // outward by at most the length of that delta, so adding that length to the radius
+        // stays conservative; the modifiers that restructure the bounds fall back to the new
+        // box diagonal, which is always valid.
+        private static void ExpandBoundsForModifier(ref Bounds bounds, ref float boundingRadius, SDFModifier modifier)
         {
             switch (modifier.Type)
             {
                 case SDFModifierType.Round:
                 case SDFModifierType.Onion:
                     bounds.Expand(Mathf.Abs(modifier.Amount) * 2f);
+                    boundingRadius += Mathf.Abs(modifier.Amount);
                     break;
                 case SDFModifierType.Elongate:
-                    bounds.Expand(Vector3.Scale(Abs(modifier.Vector), AxesMask(modifier.Axes)) * 2f);
+                    Vector3 elongation = Vector3.Scale(Abs(modifier.Vector), AxesMask(modifier.Axes));
+                    bounds.Expand(elongation * 2f);
+                    boundingRadius += elongation.magnitude;
                     break;
                 case SDFModifierType.Mirror:
                     Vector3 mirrorOffset = Vector3.Scale(Abs(modifier.Vector), AxesMask(modifier.Axes));
@@ -1084,40 +1157,69 @@ namespace SdfRenderer
                     if ((modifier.Axes & SDFModifierAxes.Z) != 0) { mirrorExtents.z += Mathf.Abs(mirrorCenter.z) + mirrorOffset.z; mirrorCenter.z = 0f; }
                     bounds.center = mirrorCenter;
                     bounds.extents = mirrorExtents;
+                    boundingRadius = mirrorExtents.magnitude;
                     break;
                 case SDFModifierType.FiniteRepeat:
                     Vector3 repetition = Vector3.Scale(Abs(modifier.Vector), new Vector3(modifier.Count.x, modifier.Count.y, modifier.Count.z));
-                    bounds.Expand(Vector3.Scale(repetition, AxesMask(modifier.Axes)) * 2f);
+                    Vector3 repeatDelta = Vector3.Scale(repetition, AxesMask(modifier.Axes));
+                    bounds.Expand(repeatDelta * 2f);
+                    boundingRadius += repeatDelta.magnitude;
                     break;
                 case SDFModifierType.Twist:
                 case SDFModifierType.Bend:
+                    // Both already produce an isotropic bound about the local origin, so the
+                    // scalar radius is tighter than the diagonal of the cube written here.
                     float radius = bounds.center.magnitude + bounds.extents.magnitude;
+                    boundingRadius = bounds.center.magnitude + boundingRadius;
                     bounds.center = Vector3.zero;
                     bounds.extents = Vector3.one * radius;
                     break;
                 case SDFModifierType.Revolution:
+                    // The result is a surface of revolution about local Y, so it fits the
+                    // cylinder of this radius and the untouched half height.
                     float revolutionRadius = Mathf.Abs(modifier.Amount) + Mathf.Abs(bounds.center.x) + bounds.extents.x;
                     bounds.center = new Vector3(0f, bounds.center.y, 0f);
                     bounds.extents = new Vector3(revolutionRadius, bounds.extents.y, revolutionRadius);
+                    boundingRadius = Mathf.Sqrt(revolutionRadius * revolutionRadius + bounds.extents.y * bounds.extents.y);
                     break;
                 case SDFModifierType.Extrusion:
-                    bounds.Expand(Vector3.Scale(Vector3.one * Mathf.Abs(modifier.Amount), AxesMask(modifier.Axes)) * 2f);
+                    Vector3 extrusion = Vector3.Scale(Vector3.one * Mathf.Abs(modifier.Amount), AxesMask(modifier.Axes));
+                    bounds.Expand(extrusion * 2f);
+                    boundingRadius += extrusion.magnitude;
                     break;
             }
+            // The box diagonal is always a valid radius, so never keep a looser one.
+            boundingRadius = Mathf.Min(boundingRadius, bounds.extents.magnitude);
         }
 
         private static Vector3 AxesMask(SDFModifierAxes axes) => new Vector3((axes & SDFModifierAxes.X) != 0 ? 1f : 0f, (axes & SDFModifierAxes.Y) != 0 ? 1f : 0f, (axes & SDFModifierAxes.Z) != 0 ? 1f : 0f);
         private static Vector3 Abs(Vector3 v) => new Vector3(Mathf.Abs(v.x), Mathf.Abs(v.y), Mathf.Abs(v.z));
 
-        private static Bounds TransformBounds(Matrix4x4 matrix, Bounds local)
+        // Shared by the managed compile and both transform jobs so the three paths cannot
+        // drift. The rotated local box and the transformed bounding sphere are each a valid
+        // world bound, so the smaller of the two per axis is one as well - and only the box
+        // term grows when the shape rotates. maximumScale is a conservative upper bound on
+        // the transform's largest singular value, which is what carries the local ball of
+        // this radius into a world ball whatever the rotation.
+        private static float3 WorldExtents(float3 row0, float3 row1, float3 row2,
+            float3 extents, float radius, float maximumScale)
+        {
+            float3 box = new float3(
+                math.abs(row0.x) * extents.x + math.abs(row0.y) * extents.y + math.abs(row0.z) * extents.z,
+                math.abs(row1.x) * extents.x + math.abs(row1.y) * extents.y + math.abs(row1.z) * extents.z,
+                math.abs(row2.x) * extents.x + math.abs(row2.y) * extents.y + math.abs(row2.z) * extents.z);
+            return math.min(box, math.max(maximumScale, 0f) * radius);
+        }
+
+        private static Bounds TransformBounds(Matrix4x4 matrix, Bounds local, float radius, float maximumScale)
         {
             Vector3 center = matrix.MultiplyPoint3x4(local.center);
-            Vector3 e = local.extents;
-            Vector3 x = matrix.MultiplyVector(new Vector3(e.x, 0f, 0f));
-            Vector3 y = matrix.MultiplyVector(new Vector3(0f, e.y, 0f));
-            Vector3 z = matrix.MultiplyVector(new Vector3(0f, 0f, e.z));
-            Vector3 worldExtents = Abs(x) + Abs(y) + Abs(z);
-            return new Bounds(center, worldExtents * 2f);
+            float3 worldExtents = WorldExtents(
+                new float3(matrix.m00, matrix.m01, matrix.m02),
+                new float3(matrix.m10, matrix.m11, matrix.m12),
+                new float3(matrix.m20, matrix.m21, matrix.m22),
+                local.extents, radius, maximumScale);
+            return new Bounds(center, ((Vector3)worldExtents) * 2f);
         }
 
         private static void EnsureBuffer(ref GraphicsBuffer buffer, ref int capacity, int count, int stride, string name)

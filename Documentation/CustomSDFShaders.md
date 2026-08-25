@@ -28,6 +28,6 @@ Use:
 SampleSDFTexture((uint)(material.CustomShaderTextureIndices.y + 0.5), uv)
 ```
 
-to sample the assigned Base Map. Sixteen independent 2D textures can be bound in one scene batch without resizing or atlasing. Additional textures use a white fallback and produce an explicit warning.
+to sample the assigned Base Map. Fifteen user-assigned 2D textures plus the built-in white fallback can be bound in one scene batch without resizing or atlasing. Additional textures use the fallback and produce an explicit warning.
 
 Custom modules run only during the final hit-surface fold, never during sphere-tracing or normal-distance samples. Smooth operations blend their final lit outputs using the same interpolation weight as the distance formula.

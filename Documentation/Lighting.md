@@ -26,7 +26,7 @@ The color pass samples that AO texture once per visible SDF hit. Its direct fact
 
 ## PBR
 
-The `URP Lit` SDF shading model packs albedo, metallic, smoothness, material occlusion, and emission into the existing material buffer. At a hit, it builds URP `SurfaceData`, `InputData`, and `BRDFData`, then uses URP's physically based lighting functions for:
+The `URP Lit` SDF shading model packs albedo, metallic, smoothness, material occlusion, emission, and texture indices into the existing material buffer. Base, tangent-space normal, metallic, and separate roughness maps use the shape's procedural local XZ coordinates. Because analytic SDFs have no mesh tangent stream, the renderer derives the tangent frame from the shape's world-to-local UV gradients and analytic hit normal, then follows URP Lit's `UnpackNormalScale` and tangent-to-world path. Metallic is read from the map's red channel when one is assigned. Roughness is read from red, converted to smoothness, and multiplied by the material smoothness value. At a hit, the renderer builds URP `SurfaceData`, `InputData`, and `BRDFData`, then uses URP's physically based lighting functions for:
 
 - the main directional light and its shadow attenuation;
 - Forward+ additional lights and their receive-side shadows;

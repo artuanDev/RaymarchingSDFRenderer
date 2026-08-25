@@ -48,6 +48,7 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
                 float4 Custom0;
                 float4 Custom1;
                 float4 CustomShaderTextureIndices;
+                float4 PbrTextureIndicesAndNormalScale;
             };
 
             StructuredBuffer<SDFModelGpu> _SDFModels;
@@ -173,6 +174,8 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
                 float3 positionWS;
                 float3 positionOS;
                 float3 normalWS;
+                float3 tangentWS;
+                float3 bitangentWS;
                 float3 viewDirectionWS;
                 float2 uv;
                 float2 screenUV;
@@ -534,20 +537,33 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
                 return ApplyDistanceModifiers(distance,start,count,shape.MaterialModifierCountDistanceScaleBoundsScale.z*correction);
             }
 
-            bool CanSkipUnion(float3 p,SDFShapeGpu shape,float current,float smoothing)
+            // Indexes the buffer directly rather than taking an already-loaded SDFShapeGpu,
+            // so a rejected operand only reads the fields this test needs out of the
+            // record's eleven float4s. This matters because the D3D11 colour passes ship
+            // with skip_optimizations, where the compiler will not sink the loads itself.
+            // Confirmed in the /Od disassembly (fxc /T ps_5_0 /Fc): the shape loop used to
+            // load byte offsets 0 through 108 - both transform rows and all four parameter
+            // vectors - before the skip branch, and now loads 9 dwords (the operation word,
+            // the bounds scale and the two AABB corners) and reaches `continue` before the
+            // full record is fetched. Every operand in the loop pays the test and on a model
+            // of any size most operands fail it, so that is the common path.
+            //
+            // The thresholds are unchanged from the two functions this replaces, so exactly
+            // the same operands are skipped and the field is bit-identical.
+            bool CanSkipOperand(float3 p,uint shapeIndex,uint operation,float smoothing,float current)
             {
-                float boundsScale=shape.MaterialModifierCountDistanceScaleBoundsScale.w;
+                bool isUnion=operation==0u||operation==3u;
+                bool isSubtraction=operation==1u||operation==4u;
+                if(!isUnion&&!isSubtraction) return false;
+                float boundsScale=_SDFShapes[shapeIndex].MaterialModifierCountDistanceScaleBoundsScale.w;
                 if(boundsScale<=0.0) return false;
-                float squared=SquaredDistanceToAabb(p,shape.BoundsMin.xyz,shape.BoundsMax.xyz)*boundsScale*boundsScale;
-                float threshold=max(current,0.0)+smoothing;
-                return squared>=threshold*threshold;
-            }
-
-            bool CanSkipSubtraction(float3 p,SDFShapeGpu shape,float current,float smoothing)
-            {
-                float boundsScale=shape.MaterialModifierCountDistanceScaleBoundsScale.w;
-                if(boundsScale<=0.0) return false;
-                float squared=SquaredDistanceToAabb(p,shape.BoundsMin.xyz,shape.BoundsMax.xyz)*boundsScale*boundsScale;
+                float squared=SquaredDistanceToAabb(p,_SDFShapes[shapeIndex].BoundsMin.xyz,
+                    _SDFShapes[shapeIndex].BoundsMax.xyz)*boundsScale*boundsScale;
+                if(isUnion)
+                {
+                    float threshold=max(current,0.0)+smoothing;
+                    return squared>=threshold*threshold;
+                }
                 // A zero AABB distance means the point is inside the conservative
                 // operand volume, where a lower distance bound cannot reject it.
                 if(squared<=0.0) return false;
@@ -562,11 +578,12 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
                 float current=EvaluateShape(p,_SDFShapes[start]);
                 [loop] for(uint i=1u;i<count;++i)
                 {
-                    SDFShapeGpu shape=_SDFShapes[start+i];
-                    uint operation=(uint)(shape.TypeOperationSmoothModifierStart.y+0.5);
-                    float k=shape.TypeOperationSmoothModifierStart.z;
-                    if((operation==0u||operation==3u)&&CanSkipUnion(p,shape,current,operation==3u?k:0.0)) continue;
-                    if((operation==1u||operation==4u)&&CanSkipSubtraction(p,shape,current,operation==4u?k:0.0)) continue;
+                    uint shapeIndex=start+i;
+                    float4 operationData=_SDFShapes[shapeIndex].TypeOperationSmoothModifierStart;
+                    uint operation=(uint)(operationData.y+0.5);
+                    float k=operationData.z;
+                    if(CanSkipOperand(p,shapeIndex,operation,(operation==3u||operation==4u)?k:0.0,current)) continue;
+                    SDFShapeGpu shape=_SDFShapes[shapeIndex];
                     float operand=EvaluateShape(p,shape);
                     if(operation==0u) current=min(current,operand);
                     else if(operation==1u) current=max(current,-operand);
@@ -642,14 +659,62 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
                 return lerp(1.0,mainLight.shadowAttenuation,saturate(_SDFShadowStrength));
             }
 
+            void SetSurfaceCoordinates(inout SDFSurfaceContext context,float3 positionWS,SDFShapeGpu shape)
+            {
+                context.positionOS=ToLocal(positionWS,shape);
+                context.uv=context.positionOS.xz;
+
+                // SDFs do not have mesh tangents. The XZ procedural UV gradients are
+                // the first and third rows of world-to-local. Project the U gradient
+                // onto the analytic surface, then choose the bitangent sign that points
+                // toward increasing V. This mirrors the tangent-to-world path used by
+                // URP Lit while remaining stable under rotated/non-uniformly scaled SDFs.
+                float3 normalWS=SafeNormalize(context.normalWS);
+                float3 gradientU=shape.WorldToLocal0.xyz;
+                float3 gradientV=shape.WorldToLocal2.xyz;
+                float3 tangentWS=gradientU-normalWS*dot(gradientU,normalWS);
+                if(dot(tangentWS,tangentWS)<1e-8)
+                    tangentWS=cross(normalWS,gradientV);
+                if(dot(tangentWS,tangentWS)<1e-8)
+                {
+                    float3 fallbackAxis=abs(normalWS.y)<0.999?float3(0.0,1.0,0.0):float3(1.0,0.0,0.0);
+                    tangentWS=cross(fallbackAxis,normalWS);
+                }
+                tangentWS=SafeNormalize(tangentWS);
+                float3 bitangentWS=SafeNormalize(cross(tangentWS,normalWS));
+                if(dot(bitangentWS,gradientV)<0.0)
+                    bitangentWS=-bitangentWS;
+                context.tangentWS=tangentWS;
+                context.bitangentWS=bitangentWS;
+            }
+
             half4 ShadeUrpLit(SDFMaterialGpu material,float3 baseColor,SDFSurfaceContext context)
             {
+                uint normalTextureIndex=(uint)(material.PbrTextureIndicesAndNormalScale.x+0.5);
+                uint metallicTextureIndex=(uint)(material.PbrTextureIndicesAndNormalScale.y+0.5);
+                uint roughnessTextureIndex=(uint)(material.PbrTextureIndicesAndNormalScale.z+0.5);
+                half3 normalTS=half3(0.0,0.0,1.0);
+                half3 normalWS=NormalizeNormalPerPixel(context.normalWS);
+                if(normalTextureIndex>0u)
+                {
+                    normalTS=UnpackNormalScale((half4)SampleSDFTexture(normalTextureIndex,context.uv),
+                        (half)material.PbrTextureIndicesAndNormalScale.w);
+                    normalWS=NormalizeNormalPerPixel(TransformTangentToWorld(normalTS,
+                        half3x3(context.tangentWS,context.bitangentWS,normalWS)));
+                }
+                half metallic=saturate(material.ModelMetallicSmoothness.y);
+                if(metallicTextureIndex>0u)
+                    metallic=saturate(SampleSDFTexture(metallicTextureIndex,context.uv).r);
+                half smoothness=saturate(material.ModelMetallicSmoothness.z);
+                if(roughnessTextureIndex>0u)
+                    smoothness*=1.0h-saturate(SampleSDFTexture(roughnessTextureIndex,context.uv).r);
+
                 SurfaceData surfaceData=(SurfaceData)0;
                 surfaceData.albedo=baseColor;
                 surfaceData.specular=half3(0.0,0.0,0.0);
-                surfaceData.metallic=saturate(material.ModelMetallicSmoothness.y);
-                surfaceData.smoothness=saturate(material.ModelMetallicSmoothness.z);
-                surfaceData.normalTS=half3(0.0,0.0,1.0);
+                surfaceData.metallic=metallic;
+                surfaceData.smoothness=smoothness;
+                surfaceData.normalTS=normalTS;
                 surfaceData.emission=material.EmissionAndCelBands.rgb;
                 surfaceData.occlusion=saturate(material.ModelMetallicSmoothness.w);
                 surfaceData.alpha=material.BaseColor.a;
@@ -659,7 +724,7 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
                 InputData inputData=(InputData)0;
                 inputData.positionWS=context.positionWS;
                 inputData.positionCS=mul(_SDFViewProjection,float4(context.positionWS,1.0));
-                inputData.normalWS=NormalizeNormalPerPixel(context.normalWS);
+                inputData.normalWS=normalWS;
                 inputData.viewDirectionWS=SafeNormalize(context.viewDirectionWS);
                 inputData.shadowCoord=TransformWorldToShadowCoord(context.positionWS);
                 inputData.fogCoord=0.0;
@@ -753,7 +818,7 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
                 uint model=(uint)(material.ModelMetallicSmoothness.x+0.5);
                 uint textureIndex=(uint)(material.CustomShaderTextureIndices.y+0.5);
                 float3 baseColor=material.BaseColor.rgb;
-                if(textureIndex>0u) baseColor*=SampleSDFTexture(textureIndex,context.positionOS.xz).rgb;
+                if(textureIndex>0u) baseColor*=SampleSDFTexture(textureIndex,context.uv).rgb;
                 if(model==1u) return baseColor+material.EmissionAndCelBands.rgb;
                 if(model==4u) return SDFShadeCustom((uint)(material.CustomShaderTextureIndices.x+0.5),context,material)+material.EmissionAndCelBands.rgb;
                 if(model==3u) return ShadeUrpLit(material,baseColor,context).rgb;
@@ -772,9 +837,10 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
                 uint start=(uint)(model.BoundsMinAndShapeStart.w+0.5),count=(uint)(abs(model.BoundsMaxAndShapeCount.w)+0.5);
                 SDFShapeGpu first=_SDFShapes[start];
                 float currentDistance=EvaluateShape(p,first);
-                SDFSurfaceContext context;
-                context.positionWS=p; context.positionOS=ToLocal(p,first); context.normalWS=normalWS; context.viewDirectionWS=viewDirection;
-                context.uv=context.positionOS.xz; context.screenUV=screenUV; context.screenPosition=float4(screenUV,screenUV*_ScaledScreenParams.xy);
+                SDFSurfaceContext context=(SDFSurfaceContext)0;
+                context.positionWS=p; context.normalWS=normalWS; context.viewDirectionWS=viewDirection;
+                SetSurfaceCoordinates(context,p,first);
+                context.screenUV=screenUV; context.screenPosition=float4(screenUV,screenUV*_ScaledScreenParams.xy);
                 context.cameraPositionWS=_SDFCameraPosition; context.cameraForwardWS=_SDFCameraForward;
                 context.lightDirectionWS=_SDFLightDirection; context.lightColor=_SDFLightColor; context.ambientColor=_SDFAmbientColor;
                 float2 ambientOcclusion=EvaluateSdfAmbientOcclusion(screenUV);
@@ -786,10 +852,11 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
                 float3 currentColor=ShadeMaterial((uint)(first.MaterialModifierCountDistanceScaleBoundsScale.x+0.5),context);
                 [loop] for(uint i=1u;i<count;++i)
                 {
-                    SDFShapeGpu shape=_SDFShapes[start+i];
-                    uint operation=(uint)(shape.TypeOperationSmoothModifierStart.y+0.5); float k=shape.TypeOperationSmoothModifierStart.z;
-                    if((operation==0u||operation==3u)&&CanSkipUnion(p,shape,currentDistance,operation==3u?k:0.0)) continue;
-                    if((operation==1u||operation==4u)&&CanSkipSubtraction(p,shape,currentDistance,operation==4u?k:0.0)) continue;
+                    uint shapeIndex=start+i;
+                    float4 operationData=_SDFShapes[shapeIndex].TypeOperationSmoothModifierStart;
+                    uint operation=(uint)(operationData.y+0.5); float k=operationData.z;
+                    if(CanSkipOperand(p,shapeIndex,operation,(operation==3u||operation==4u)?k:0.0,currentDistance)) continue;
+                    SDFShapeGpu shape=_SDFShapes[shapeIndex];
                     float operandDistance=EvaluateShape(p,shape);
                     bool shadeOperand=false;
                     float blendWeight=0.0;
@@ -820,7 +887,7 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
 
                     if(shadeOperand)
                     {
-                        context.positionOS=ToLocal(p,shape); context.uv=context.positionOS.xz;
+                        SetSurfaceCoordinates(context,p,shape);
                         float3 operandColor=ShadeMaterial((uint)(shape.MaterialModifierCountDistanceScaleBoundsScale.x+0.5),context);
                         if(operation==3u||operation==4u||operation==5u)
                             currentColor=lerp(operandColor,currentColor,blendWeight);
@@ -1084,6 +1151,19 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
             // evaluator is combined with URP's PBR/reflection code. Keep this scoped
             // to the D3D11 color program; other backends and the lean auxiliary passes
             // still use their normal optimization pipeline.
+            //
+            // Do not remove this on the theory that the looped EvaluateNormal made the
+            // compiler's job small enough. Measured offline with fxc /T ps_5_0 against
+            // the current evaluator, at the number of EvaluateModel call sites this pass
+            // actually has (march, normal, AO sweep, self shadow, surface loop):
+            //
+            //   2 call sites:  /Od  2.3 s, 7,444 slots  |  /O3  6.9 s,  3,995 slots
+            //   6 call sites:  /Od  7.3 s, 18,576 slots |  /O3 80.1 s,  9,903 slots
+            //
+            // So /O3 is worth about 1.87x in instruction slots and costs 11x in compile
+            // time at realistic size, growing super-linearly - and that is before URP's
+            // lighting code and before the multi_compile variant count below multiplies
+            // it. The slots are worth having; 80 s per variant is not.
             #pragma skip_optimizations d3d11
             #pragma vertex Vert
             #pragma fragment FragColor
@@ -1164,6 +1244,7 @@ Shader "Hidden/SDF/URPVolumeRaymarch"
 
             HLSLPROGRAM
             #pragma target 4.5
+            // See the compile-time measurements on SDFRaymarch before touching this.
             #pragma skip_optimizations d3d11
             #pragma vertex VertFullscreen
             #pragma fragment FragColorResolved

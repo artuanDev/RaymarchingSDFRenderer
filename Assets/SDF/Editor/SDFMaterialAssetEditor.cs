@@ -31,8 +31,27 @@ namespace SdfRenderer.Editor
             }
             else if (type == SDFShadingModel.PbrLike)
             {
-                EditorGUILayout.PropertyField(serializedObject.FindProperty("m_Metallic"));
-                EditorGUILayout.PropertyField(serializedObject.FindProperty("m_Smoothness"));
+                SerializedProperty metallicMap = serializedObject.FindProperty("m_MetallicMap");
+                EditorGUILayout.PropertyField(metallicMap);
+                DrawImportWarning(metallicMap.objectReferenceValue as Texture2D,
+                    false, "Metallic maps should be imported with sRGB disabled.");
+                if (metallicMap.objectReferenceValue == null)
+                    EditorGUILayout.PropertyField(serializedObject.FindProperty("m_Metallic"),
+                        new GUIContent("Metallic"));
+                else
+                    EditorGUILayout.LabelField("Metallic", "Map red channel");
+                SerializedProperty roughnessMap = serializedObject.FindProperty("m_RoughnessMap");
+                EditorGUILayout.PropertyField(serializedObject.FindProperty("m_Smoothness"),
+                    new GUIContent(roughnessMap.objectReferenceValue != null ? "Smoothness Multiplier" : "Smoothness"));
+                EditorGUILayout.PropertyField(roughnessMap);
+                DrawImportWarning(roughnessMap.objectReferenceValue as Texture2D,
+                    false, "Roughness maps should be imported with sRGB disabled.");
+                SerializedProperty normalMap = serializedObject.FindProperty("m_NormalMap");
+                EditorGUILayout.PropertyField(normalMap);
+                DrawImportWarning(normalMap.objectReferenceValue as Texture2D,
+                    true, "Use the Normal Map texture type so URP can unpack the platform encoding correctly.");
+                if (normalMap.objectReferenceValue != null)
+                    EditorGUILayout.PropertyField(serializedObject.FindProperty("m_NormalScale"));
                 EditorGUILayout.PropertyField(serializedObject.FindProperty("m_Occlusion"));
             }
             else if (type == SDFShadingModel.Custom)
@@ -47,6 +66,16 @@ namespace SdfRenderer.Editor
             }
             EditorGUILayout.PropertyField(serializedObject.FindProperty("m_Emission"));
             serializedObject.ApplyModifiedProperties();
+        }
+
+        private static void DrawImportWarning(Texture2D texture, bool expectNormalMap, string message)
+        {
+            if (texture == null) return;
+            TextureImporter importer = AssetImporter.GetAtPath(AssetDatabase.GetAssetPath(texture)) as TextureImporter;
+            if (importer == null) return;
+            bool invalid = expectNormalMap ? importer.textureType != TextureImporterType.NormalMap : importer.sRGBTexture;
+            if (invalid)
+                EditorGUILayout.HelpBox(message, MessageType.Warning);
         }
 
         private void DrawDeclaredProperties(string source)

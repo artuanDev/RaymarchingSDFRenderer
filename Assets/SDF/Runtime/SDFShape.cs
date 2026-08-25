@@ -185,6 +185,100 @@ namespace SdfRenderer
             return new Bounds(Vector3.zero, Vector3.Max(extents, Vector3.one * 0.0001f) * 2f);
         }
 
+        // Distance from the centre of GetLocalBounds() to the furthest point of the shape.
+        // A world AABB may be taken as the smaller, per axis, of the rotated local box and
+        // this radius scaled by the transform's largest singular value: both are valid
+        // bounds, so the minimum is one too. Unlike the box term, the radius does not grow
+        // when the shape rotates, and the box term inflates by up to sqrt(3) per axis - five
+        // times the volume - under rotation. Every extra cubic unit of a shape's bounds
+        // becomes fragments that rasterize, march and then miss, so the tighter of the two
+        // is worth taking.
+        //
+        // Shapes whose surface stays far inside their own AABB corners gain the most: a
+        // sphere is bounded at 0.577 of its box diagonal and does not move under rotation at
+        // all. A type with no tighter analytic bound returns the box diagonal, which is
+        // always valid and simply leaves the box term winning the minimum.
+        public float GetLocalBoundingRadius()
+        {
+            Bounds local = GetLocalBounds();
+            Vector3 e = local.extents;
+            float diagonal = e.magnitude;
+            if (IsUnbounded)
+                return diagonal;
+
+            float radius;
+            switch (m_ShapeType)
+            {
+                // Contained in a ball about the bounds centre, so the largest half extent
+                // is already the exact radius.
+                case SDFShapeType.Sphere:
+                case SDFShapeType.Octahedron:
+                case SDFShapeType.OctahedronBound:
+                case SDFShapeType.EllipsoidBound:
+                case SDFShapeType.SolidAngle:
+                case SDFShapeType.CutSphere:
+                case SDFShapeType.CutHollowSphere:
+                case SDFShapeType.DeathStar:
+                case SDFShapeType.Torus:
+                case SDFShapeType.CappedTorus:
+                case SDFShapeType.VerticalCapsule:
+                    radius = Mathf.Max(e.x, Mathf.Max(e.y, e.z));
+                    break;
+                // Surfaces of revolution about local Y: contained in a cylinder of radius
+                // max(e.x, e.z) and half height e.y, whose diagonal drops one of the three
+                // squared terms the box diagonal carries.
+                case SDFShapeType.Cone:
+                case SDFShapeType.CappedCone:
+                case SDFShapeType.CappedCylinder:
+                case SDFShapeType.RoundedCylinder:
+                case SDFShapeType.Rhombus:
+                    radius = CylinderRadius(Mathf.Max(e.x, e.z), e.y);
+                    break;
+                // The hexagonal prism is extruded along local Z instead.
+                case SDFShapeType.HexagonalPrism:
+                    radius = CylinderRadius(Mathf.Max(e.x, e.y), e.z);
+                    break;
+                // Segment shapes bound a capsule whose axis runs A to B. GetLocalBounds
+                // centres their box on the segment midpoint, so half the segment plus the
+                // sweep radius is the exact distance to the furthest point.
+                case SDFShapeType.Capsule:
+                case SDFShapeType.ArbitraryCappedCylinder:
+                    radius = SegmentRadius(m_PointA, m_PointB, Mathf.Max(m_Radius, m_RadiusA));
+                    break;
+                case SDFShapeType.ArbitraryCappedCone:
+                case SDFShapeType.RoundCone:
+                    radius = SegmentRadius(m_PointA, m_PointB, Mathf.Max(m_RadiusA, m_RadiusB));
+                    break;
+                case SDFShapeType.RevolvedVesica:
+                    radius = SegmentRadius(m_PointA, m_PointB, Mathf.Max(m_Radius, m_Thickness));
+                    break;
+                case SDFShapeType.TriangleUnsigned:
+                    radius = PointsRadius(local.center, m_PointA, m_PointB, m_PointC, m_PointC, m_Thickness);
+                    break;
+                case SDFShapeType.QuadUnsigned:
+                    radius = PointsRadius(local.center, m_PointA, m_PointB, m_PointC, m_PointD, m_Thickness);
+                    break;
+                default:
+                    radius = diagonal;
+                    break;
+            }
+            return Mathf.Min(radius, diagonal);
+        }
+
+        private static float CylinderRadius(float radial, float halfHeight) =>
+            Mathf.Sqrt(radial * radial + halfHeight * halfHeight);
+
+        private static float SegmentRadius(Vector3 a, Vector3 b, float radius) =>
+            (b - a).magnitude * 0.5f + Mathf.Max(0.0001f, radius);
+
+        private static float PointsRadius(Vector3 center, Vector3 a, Vector3 b, Vector3 c, Vector3 d, float thickness)
+        {
+            float squared = Mathf.Max(
+                Mathf.Max((a - center).sqrMagnitude, (b - center).sqrMagnitude),
+                Mathf.Max((c - center).sqrMagnitude, (d - center).sqrMagnitude));
+            return Mathf.Sqrt(squared) + Mathf.Max(0.0001f, thickness);
+        }
+
         internal float GetConservativeDistanceScale()
         {
             Vector3 scale = transform.lossyScale;

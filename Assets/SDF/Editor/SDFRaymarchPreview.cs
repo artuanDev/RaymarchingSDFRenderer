@@ -16,7 +16,7 @@ namespace SdfRenderer.Editor
         [StructLayout(LayoutKind.Sequential)] private struct ModifierGpu { public Vector4 A, B, C; }
         [StructLayout(LayoutKind.Sequential)] private struct MaterialGpu
         {
-            public Vector4 BaseColor, SpecularPower, EmissionBands, ModelMetalSmooth, Custom0, Custom1, CustomTexture;
+            public Vector4 BaseColor, SpecularPower, EmissionBands, ModelMetalSmooth, Custom0, Custom1, CustomTexture, PbrTextures;
         }
 
         internal static Texture2D Render(SDFMaterialAsset source, int width, int height)
@@ -53,13 +53,18 @@ namespace SdfRenderer.Editor
                     EmissionBands = new Vector4(emission.r,emission.g,emission.b,source.CelBands),
                     ModelMetalSmooth = new Vector4((float)source.ShadingModel,source.Metallic,source.Smoothness,source.Occlusion),
                     Custom0 = source.Custom0, Custom1 = source.Custom1,
-                    CustomTexture = new Vector4(source.CustomShader != null ? SDFCustomShaderRegistry.Resolve(source.CustomShader.StableId) : -1, source.BaseMap != null ? 1f : 0f,0f,0f)
+                    CustomTexture = new Vector4(source.CustomShader != null ? SDFCustomShaderRegistry.Resolve(source.CustomShader.StableId) : -1, source.BaseMap != null ? 1f : 0f,0f,0f),
+                    PbrTextures = new Vector4(source.NormalMap != null ? 2f : 0f, source.MetallicMap != null ? 3f : 0f,
+                        source.RoughnessMap != null ? 4f : 0f, source.NormalScale)
                 }});
 
                 material.SetBuffer("_SDFModels", models); material.SetBuffer("_SDFShapes", shapes);
                 material.SetBuffer("_SDFModifiers", modifiers); material.SetBuffer("_SDFMaterials", materials);
                 material.SetTexture("_SDFTexture0", Texture2D.whiteTexture);
                 material.SetTexture("_SDFTexture1", source.BaseMap != null ? source.BaseMap : Texture2D.whiteTexture);
+                material.SetTexture("_SDFTexture2", source.NormalMap != null ? source.NormalMap : Texture2D.whiteTexture);
+                material.SetTexture("_SDFTexture3", source.MetallicMap != null ? source.MetallicMap : Texture2D.whiteTexture);
+                material.SetTexture("_SDFTexture4", source.RoughnessMap != null ? source.RoughnessMap : Texture2D.whiteTexture);
                 cameraObject = new GameObject("SDF Preview Camera") { hideFlags = HideFlags.HideAndDontSave };
                 Camera camera = cameraObject.AddComponent<Camera>();
                 camera.transform.position = new Vector3(0f, 0f, -3.2f);

@@ -215,6 +215,69 @@ depth in the same pixel, where `LEqual` lets the last one drawn win.
 
 ---
 
+### Step 4 — comparison against the standalone SDF_Rendering prototype
+
+`D:/Unity/SDF_Rendering` was read end to end and diffed against this renderer. Every
+optimization it has is already here: procedural AABB proxy boxes with the camera-inside
+winding flip, ray/AABB clipping of the march interval, per-shape conservative bounds
+rejection with squared distances, the pixel-size-adaptive hit epsilon, the four-tap
+tetrahedron normal, and version-gated buffer rebuilds. It has **less** than this renderer,
+not more — no GPU frustum cull, no front-to-back sort, no early-Z, no depth-normals reuse,
+no model-id resolve — and it is a bare custom SRP with a single unlit pass, so its frame
+rate is not comparable. Nothing was left to port. The two items below came out of that pass
+instead.
+
+### Step 5 — hot/cold operand load in the shape loop
+
+`CanSkipUnion` / `CanSkipSubtraction` took an already-loaded `SDFShapeGpu`, so every operand
+paid a full 176-byte record load before the loop could reject it. They are replaced by one
+`CanSkipOperand` that indexes `_SDFShapes` directly. Thresholds are unchanged, so the set of
+skipped operands and the resulting field are identical.
+
+This matters specifically because the two colour passes ship with `skip_optimizations`, where
+the compiler does not sink the loads itself. Confirmed in the `/Od` disassembly
+(`fxc /T ps_5_0 /Fc`): the shape loop used to load byte offsets 0–108 — both transform rows
+and all four parameter vectors — before the skip branch; it now loads 9 dwords and reaches
+`continue` before the full record is fetched. Roughly 5x less memory traffic per rejected
+operand. **Not yet measured on a GPU.**
+
+### Step 6 — rotation-invariant shape bounds on the authored-scene path
+
+The bounding-sphere clamp that landed in `SDFBenchmarkGpuUpdate.compute` (commit 2b48852)
+only covered the GPU batch. The authored path built its world AABB as
+`abs(axis)*extents` in all three of its code paths and never had it.
+
+`SDFShape.GetLocalBoundingRadius()` returns the distance from the local bounds centre to the
+furthest surface point: exact for balls and surfaces of revolution and segment shapes, and
+the box diagonal — always valid, and never smaller than the box term — for anything with no
+tighter analytic bound. `WorldExtents` then takes `min(rotated box, maximumScale * radius)`
+per axis. Both are valid bounds so the minimum is one; only the box term grows under
+rotation, by up to sqrt(3) per axis. The radius travels alongside the bounds through
+`ExpandBoundsForModifier` and `PackModifierBoundsJob` under the same rules the compute uses.
+
+A sphere is the extreme case: bounded at 0.577 of its box diagonal, and completely
+rotation-invariant. Since model bounds are the union of shape bounds, the rasterized proxy
+box shrinks with them — this is aimed straight at the measured "rotations cost most" effect.
+**Not yet measured on a GPU.**
+
+### Ruled out by measurement — do not retry: removing `skip_optimizations d3d11`
+
+Item 3 of the old priority list assumed the looped `EvaluateNormal` had made the compiler's
+job small enough to drop the pragma. It has not. Measured offline with `fxc /T ps_5_0` on the
+current evaluator, varying the number of `EvaluateModel` call sites:
+
+| call sites | `/Od` time | `/Od` slots | `/O3` time | `/O3` slots |
+|---|---|---|---|---|
+| 2 (march + normal) | 2.3 s | 7,444 | 6.9 s | 3,995 |
+| 6 (march, normal, AO sweep, self shadow, surface loop) | 7.3 s | 18,576 | 80.1 s | 9,903 |
+
+`/O3` is worth ~1.87x in instruction slots and costs **11x in compile time at realistic call
+site count, growing super-linearly** — before URP's lighting code is added and before the
+multi_compile variant count multiplies it. 80 s per variant is not payable. The pragma stays,
+and the measurement is recorded in the shader next to it.
+
+---
+
 ## Next, in priority order
 
 1. **Second-sided depth rejection for the shadow pass.** Step 3 rejects receivers in *front*
@@ -224,25 +287,17 @@ depth in the same pixel, where `LEqual` lets the last one drawn win.
    volume setup) or a depth-bounds test. Measure after step 3 before deciding whether the
    remaining cost justifies it.
 
-2. **Tighten bounds against rotation.** This is the measured "rotations cost most" effect.
-   `WorldBounds` in the batch compute and `PackShapesJob` in
-   [SDFSceneData.cs](../Assets/SDF/Runtime/SDFSceneData.cs) both build a world AABB as
-   `abs(axisX)*e.x + abs(axisY)*e.y + abs(axisZ)*e.z`, which inflates by up to ~1.73x per
-   axis under rotation — and does so even for a sphere, whose true AABB is rotation
-   invariant. Two independent wins: transform the ray into local space and intersect the
-   local box (a tight OBB test) for the march interval, and rasterize a tighter hull so
-   rotation stops inflating screen coverage.
+2. **Tighten the march interval against rotation.** Step 6 covered the bounds half of this:
+   world AABBs are now clamped by a rotation-invariant bounding sphere, so rotation stops
+   inflating rasterized coverage. The other half is still open — transform the ray into
+   shape-local space and intersect the local box (a tight OBB test) to shorten the marched
+   interval, rather than clipping against the world AABB.
 
-3. **Re-evaluate `skip_optimizations d3d11`.** With `EvaluateNormal` no longer inlined 4x,
-   the compiler's job is 2.49x smaller. Try removing the pragma, or `#pragma use_dxc`, and
-   confirm the shader still compiles in acceptable time. Worth ~1.87x instruction slots.
+3. **Evaluator micro-work.** The hot/cold split is done (step 5). Still open: divergence in
+   the 32-branch `EvaluatePrimitive`, and the double walk of the modifier list in
+   `EvaluateShape` / `ApplyDistanceModifiers`.
 
-4. **Only then** consider evaluator micro-work: hot/cold split of `SDFShapeGpu` so the
-   176-byte load is not paid by shapes the AABB test rejects, reducing divergence in the
-   32-branch `EvaluatePrimitive`, and the double walk of the modifier list in `EvaluateShape`
-   / `ApplyDistanceModifiers`.
-
-5. **CPU, for the authored-scene path.** `RefreshMaterials`
+4. **CPU, for the authored-scene path.** `RefreshMaterials`
    ([SDFSceneData.cs:734](../Assets/SDF/Runtime/SDFSceneData.cs#L734)) rebuilds and re-uploads
    the *entire* material buffer when any single material changes, which is the user's live
    scenario. The upload paths call `.Complete()` on the main thread (lines 905, 964).

@@ -38,6 +38,7 @@ struct MaterialGpu
     float4 Custom0;
     float4 Custom1;
     float4 CustomShaderTextureIndices;
+    float4 PbrTextureIndicesAndNormalScale;
 };
 
 RWStructuredBuffer<ModelGpu> _SDFModels;
@@ -242,6 +243,7 @@ void WriteMaterial(uint index)
     material.Custom0 = 0.0.xxxx;
     material.Custom1 = 0.0.xxxx;
     material.CustomShaderTextureIndices = float4(-1.0, 0.0, 0.0, 0.0);
+    material.PbrTextureIndicesAndNormalScale = float4(0.0, 0.0, 0.0, 1.0);
     _SDFMaterials[index] = material;
 }
 
