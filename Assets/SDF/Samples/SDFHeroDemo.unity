@@ -539,90 +539,12 @@ Transform:
   m_GameObject: {fileID: 188957372}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 1.4, z: 1.05}
+  m_LocalPosition: {x: 0, y: 0.8, z: -5.24}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!1 &202232635
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 202232636}
-  - component: {fileID: 202232638}
-  - component: {fileID: 202232637}
-  m_Layer: 0
-  m_Name: Sculpted Nose
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &202232636
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 202232635}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 1808687299}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &202232637
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 202232635}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 21fcff9f377e7674cb8d4aa6f00717da, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: SDF.Runtime::SdfRenderer.SDFOperation
-  m_Type: 3
-  m_Smoothness: 0.13
---- !u!114 &202232638
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 202232635}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 18971fba1af45bf47a15a2f46b81bb76, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: SDF.Runtime::SdfRenderer.SDFShape
-  m_ShapeType: 24
-  m_Radius: 0.22
-  m_Size: {x: 0.5, y: 0.5, z: 0.5}
-  m_Roundness: 0.1
-  m_Height: 1
-  m_RadiusA: 0.22
-  m_RadiusB: 0.075
-  m_Thickness: 0.1
-  m_Angle: 45
-  m_PointA: {x: 0, y: 0.09, z: -0.38}
-  m_PointB: {x: 0, y: 0.02, z: -0.91}
-  m_PointC: {x: 0.5, y: -0.5, z: 0}
-  m_PointD: {x: -0.5, y: -0.5, z: 0}
-  m_Normal: {x: 0, y: 1, z: 0}
-  m_Offset: 0
-  m_ClipBounds:
-    m_Center: {x: 0, y: 0, z: 0}
-    m_Extent: {x: 10, y: 10, z: 10}
-  m_Material: {fileID: 11400000, guid: 094c7f9e42fbbce4cab3cf88edd6728d, type: 2}
 --- !u!1 &223564360
 GameObject:
   m_ObjectHideFlags: 0
@@ -1367,96 +1289,6 @@ Transform:
   m_Children: []
   m_Father: {fileID: 1906088649}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!1 &572368431
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 572368434}
-  - component: {fileID: 572368433}
-  - component: {fileID: 572368432}
-  m_Layer: 0
-  m_Name: Portrait Upper Plinth
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!23 &572368432
-MeshRenderer:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 572368431}
-  m_Enabled: 1
-  m_CastShadows: 1
-  m_ReceiveShadows: 1
-  m_DynamicOccludee: 1
-  m_StaticShadowCaster: 0
-  m_MotionVectors: 1
-  m_LightProbeUsage: 1
-  m_ReflectionProbeUsage: 1
-  m_RayTracingMode: 2
-  m_RayTraceProcedural: 0
-  m_RayTracingAccelStructBuildFlagsOverride: 0
-  m_RayTracingAccelStructBuildFlags: 1
-  m_SmallMeshCulling: 1
-  m_ForceMeshLod: -1
-  m_MeshLodSelectionBias: 0
-  m_RenderingLayerMask: 1
-  m_RendererPriority: 0
-  m_Materials:
-  - {fileID: 2100000, guid: cf489ca02deefaa40ae7d4b316da2374, type: 2}
-  m_StaticBatchInfo:
-    firstSubMesh: 0
-    subMeshCount: 0
-  m_StaticBatchRoot: {fileID: 0}
-  m_ProbeAnchor: {fileID: 0}
-  m_LightProbeVolumeOverride: {fileID: 0}
-  m_ScaleInLightmap: 1
-  m_ReceiveGI: 1
-  m_PreserveUVs: 1
-  m_IgnoreNormalsForChartDetection: 0
-  m_ImportantGI: 0
-  m_StitchLightmapSeams: 1
-  m_SelectedEditorRenderState: 3
-  m_MinimumChartSize: 4
-  m_AutoUVMaxDistance: 0.5
-  m_AutoUVMaxAngle: 89
-  m_LightmapParameters: {fileID: 0}
-  m_GlobalIlluminationMeshLod: 0
-  m_SortingLayerID: 0
-  m_SortingLayer: 0
-  m_SortingOrder: 0
-  m_MaskInteraction: 0
-  m_AdditionalVertexStreams: {fileID: 0}
---- !u!33 &572368433
-MeshFilter:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 572368431}
-  m_Mesh: {fileID: 10206, guid: 0000000000000000e000000000000000, type: 0}
---- !u!4 &572368434
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 572368431}
-  serializedVersion: 2
-  m_LocalRotation: {x: -0, y: 0.02617695, z: -0, w: 0.99965733}
-  m_LocalPosition: {x: 0, y: -1.29, z: 0}
-  m_LocalScale: {x: 1.107, y: 0.08, z: 1.107}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 1808687299}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &590301748
 GameObject:
   m_ObjectHideFlags: 0
@@ -1535,84 +1367,6 @@ MonoBehaviour:
     m_Center: {x: 0, y: 0, z: 0}
     m_Extent: {x: 10, y: 10, z: 10}
   m_Material: {fileID: 11400000, guid: 7bcbe45919ba8464b9e5f6f73c36687e, type: 2}
---- !u!1 &622588016
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 622588017}
-  - component: {fileID: 622588019}
-  - component: {fileID: 622588018}
-  m_Layer: 0
-  m_Name: Carved Mouth
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &622588017
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 622588016}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 1808687299}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &622588018
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 622588016}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 21fcff9f377e7674cb8d4aa6f00717da, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: SDF.Runtime::SdfRenderer.SDFOperation
-  m_Type: 4
-  m_Smoothness: 0.055
---- !u!114 &622588019
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 622588016}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 18971fba1af45bf47a15a2f46b81bb76, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: SDF.Runtime::SdfRenderer.SDFShape
-  m_ShapeType: 13
-  m_Radius: 0.052
-  m_Size: {x: 0.5, y: 0.5, z: 0.5}
-  m_Roundness: 0.1
-  m_Height: 1
-  m_RadiusA: 0.052
-  m_RadiusB: 0.052
-  m_Thickness: 0.1
-  m_Angle: 45
-  m_PointA: {x: -0.24, y: -0.39, z: -0.57}
-  m_PointB: {x: 0.24, y: -0.39, z: -0.57}
-  m_PointC: {x: 0.5, y: -0.5, z: 0}
-  m_PointD: {x: -0.5, y: -0.5, z: 0}
-  m_Normal: {x: 0, y: 1, z: 0}
-  m_Offset: 0
-  m_ClipBounds:
-    m_Center: {x: 0, y: 0, z: 0}
-    m_Extent: {x: 10, y: 10, z: 10}
-  m_Material: {fileID: 11400000, guid: 371ad701182165a4588da8115ad7e6c6, type: 2}
 --- !u!1 &630455909
 GameObject:
   m_ObjectHideFlags: 0
@@ -1703,84 +1457,6 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 630455909}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
---- !u!1 &648422004
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 648422005}
-  - component: {fileID: 648422007}
-  - component: {fileID: 648422006}
-  m_Layer: 0
-  m_Name: Left Ear
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &648422005
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 648422004}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -0.73, y: -0.02, z: 0.01}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 1808687299}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &648422006
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 648422004}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 21fcff9f377e7674cb8d4aa6f00717da, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: SDF.Runtime::SdfRenderer.SDFOperation
-  m_Type: 3
-  m_Smoothness: 0.12
---- !u!114 &648422007
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 648422004}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 18971fba1af45bf47a15a2f46b81bb76, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: SDF.Runtime::SdfRenderer.SDFShape
-  m_ShapeType: 26
-  m_Radius: 0.5
-  m_Size: {x: 0.19, y: 0.28, z: 0.16}
-  m_Roundness: 0.1
-  m_Height: 1
-  m_RadiusA: 0.75
-  m_RadiusB: 0.2
-  m_Thickness: 0.1
-  m_Angle: 45
-  m_PointA: {x: 0, y: -0.5, z: 0}
-  m_PointB: {x: 0, y: 0.5, z: 0}
-  m_PointC: {x: 0.5, y: -0.5, z: 0}
-  m_PointD: {x: -0.5, y: -0.5, z: 0}
-  m_Normal: {x: 0, y: 1, z: 0}
-  m_Offset: 0
-  m_ClipBounds:
-    m_Center: {x: 0, y: 0, z: 0}
-    m_Extent: {x: 10, y: 10, z: 10}
-  m_Material: {fileID: 11400000, guid: 094c7f9e42fbbce4cab3cf88edd6728d, type: 2}
 --- !u!1 &681760948
 GameObject:
   m_ObjectHideFlags: 0
@@ -1871,84 +1547,6 @@ Transform:
   m_Children: []
   m_Father: {fileID: 1254460301}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!1 &694805443
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 694805444}
-  - component: {fileID: 694805446}
-  - component: {fileID: 694805445}
-  m_Layer: 0
-  m_Name: Portrait Neck
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &694805444
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 694805443}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: -1.02, z: 0.08}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 1808687299}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &694805445
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 694805443}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 21fcff9f377e7674cb8d4aa6f00717da, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: SDF.Runtime::SdfRenderer.SDFOperation
-  m_Type: 3
-  m_Smoothness: 0.2
---- !u!114 &694805446
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 694805443}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 18971fba1af45bf47a15a2f46b81bb76, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: SDF.Runtime::SdfRenderer.SDFShape
-  m_ShapeType: 15
-  m_Radius: 0.31
-  m_Size: {x: 0.5, y: 0.5, z: 0.5}
-  m_Roundness: 0.1
-  m_Height: 0.58
-  m_RadiusA: 0.75
-  m_RadiusB: 0.2
-  m_Thickness: 0.1
-  m_Angle: 45
-  m_PointA: {x: 0, y: -0.5, z: 0}
-  m_PointB: {x: 0, y: 0.5, z: 0}
-  m_PointC: {x: 0.5, y: -0.5, z: 0}
-  m_PointD: {x: -0.5, y: -0.5, z: 0}
-  m_Normal: {x: 0, y: 1, z: 0}
-  m_Offset: 0
-  m_ClipBounds:
-    m_Center: {x: 0, y: 0, z: 0}
-    m_Extent: {x: 10, y: 10, z: 10}
-  m_Material: {fileID: 11400000, guid: 094c7f9e42fbbce4cab3cf88edd6728d, type: 2}
 --- !u!1 &704977440
 GameObject:
   m_ObjectHideFlags: 0
@@ -2410,7 +2008,7 @@ Transform:
   m_GameObject: {fileID: 781901394}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0.02617695, z: 0, w: 0.99965733}
-  m_LocalPosition: {x: 3.07, y: 0.92, z: -0.56}
+  m_LocalPosition: {x: 3.48, y: 0.92, z: -5.9000006}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -2539,84 +2137,6 @@ Transform:
   m_Children: []
   m_Father: {fileID: 781901395}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!1 &841452668
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 841452669}
-  - component: {fileID: 841452671}
-  - component: {fileID: 841452670}
-  m_Layer: 0
-  m_Name: Porcelain Head
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &841452669
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 841452668}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 1808687299}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &841452670
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 841452668}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 21fcff9f377e7674cb8d4aa6f00717da, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: SDF.Runtime::SdfRenderer.SDFOperation
-  m_Type: 0
-  m_Smoothness: 0.25
---- !u!114 &841452671
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 841452668}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 18971fba1af45bf47a15a2f46b81bb76, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: SDF.Runtime::SdfRenderer.SDFShape
-  m_ShapeType: 26
-  m_Radius: 0.5
-  m_Size: {x: 0.72, y: 0.92, z: 0.58}
-  m_Roundness: 0.1
-  m_Height: 1
-  m_RadiusA: 0.75
-  m_RadiusB: 0.2
-  m_Thickness: 0.1
-  m_Angle: 45
-  m_PointA: {x: 0, y: -0.5, z: 0}
-  m_PointB: {x: 0, y: 0.5, z: 0}
-  m_PointC: {x: 0.5, y: -0.5, z: 0}
-  m_PointD: {x: -0.5, y: -0.5, z: 0}
-  m_Normal: {x: 0, y: 1, z: 0}
-  m_Offset: 0
-  m_ClipBounds:
-    m_Center: {x: 0, y: 0, z: 0}
-    m_Extent: {x: 10, y: 10, z: 10}
-  m_Material: {fileID: 11400000, guid: 094c7f9e42fbbce4cab3cf88edd6728d, type: 2}
 --- !u!1 &852866248
 GameObject:
   m_ObjectHideFlags: 0
@@ -2735,84 +2255,6 @@ MonoBehaviour:
     m_Center: {x: 0, y: 0, z: 0}
     m_Extent: {x: 10, y: 10, z: 10}
   m_Material: {fileID: 11400000, guid: 5347ab9508b925b418c8a001146bc137, type: 2}
---- !u!1 &972439213
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 972439214}
-  - component: {fileID: 972439216}
-  - component: {fileID: 972439215}
-  m_Layer: 0
-  m_Name: Right Ear
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &972439214
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 972439213}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0.73, y: -0.02, z: 0.01}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 1808687299}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &972439215
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 972439213}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 21fcff9f377e7674cb8d4aa6f00717da, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: SDF.Runtime::SdfRenderer.SDFOperation
-  m_Type: 3
-  m_Smoothness: 0.12
---- !u!114 &972439216
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 972439213}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 18971fba1af45bf47a15a2f46b81bb76, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: SDF.Runtime::SdfRenderer.SDFShape
-  m_ShapeType: 26
-  m_Radius: 0.5
-  m_Size: {x: 0.19, y: 0.28, z: 0.16}
-  m_Roundness: 0.1
-  m_Height: 1
-  m_RadiusA: 0.75
-  m_RadiusB: 0.2
-  m_Thickness: 0.1
-  m_Angle: 45
-  m_PointA: {x: 0, y: -0.5, z: 0}
-  m_PointB: {x: 0, y: 0.5, z: 0}
-  m_PointC: {x: 0.5, y: -0.5, z: 0}
-  m_PointD: {x: -0.5, y: -0.5, z: 0}
-  m_Normal: {x: 0, y: 1, z: 0}
-  m_Offset: 0
-  m_ClipBounds:
-    m_Center: {x: 0, y: 0, z: 0}
-    m_Extent: {x: 10, y: 10, z: 10}
-  m_Material: {fileID: 11400000, guid: 094c7f9e42fbbce4cab3cf88edd6728d, type: 2}
 --- !u!1 &984734115
 GameObject:
   m_ObjectHideFlags: 0
@@ -2942,7 +2384,7 @@ MonoBehaviour:
   m_BlendShape: {fileID: 1375924858}
   m_CutterShape: {fileID: 2110018475}
   m_OrbitRoot: {fileID: 1603928174}
-  m_FaceSculpture: {fileID: 1808687299}
+  m_FaceSculpture: {fileID: 0}
   m_CreatureSculpture: {fileID: 781901395}
   m_TotemSculpture: {fileID: 1906088649}
   m_Twist: {fileID: 2014015260}
@@ -3211,84 +2653,6 @@ MonoBehaviour:
     m_Center: {x: 0, y: 0, z: 0}
     m_Extent: {x: 10, y: 10, z: 10}
   m_Material: {fileID: 11400000, guid: 70081fcf536dd0141b5b0ebd6be2cece, type: 2}
---- !u!1 &1125393750
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 1125393751}
-  - component: {fileID: 1125393753}
-  - component: {fileID: 1125393752}
-  m_Layer: 0
-  m_Name: Right Cheek
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &1125393751
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1125393750}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0.29, y: -0.12, z: -0.24}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 1808687299}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &1125393752
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1125393750}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 21fcff9f377e7674cb8d4aa6f00717da, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: SDF.Runtime::SdfRenderer.SDFOperation
-  m_Type: 3
-  m_Smoothness: 0.24
---- !u!114 &1125393753
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1125393750}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 18971fba1af45bf47a15a2f46b81bb76, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: SDF.Runtime::SdfRenderer.SDFShape
-  m_ShapeType: 26
-  m_Radius: 0.5
-  m_Size: {x: 0.48, y: 0.46, z: 0.46}
-  m_Roundness: 0.1
-  m_Height: 1
-  m_RadiusA: 0.75
-  m_RadiusB: 0.2
-  m_Thickness: 0.1
-  m_Angle: 45
-  m_PointA: {x: 0, y: -0.5, z: 0}
-  m_PointB: {x: 0, y: 0.5, z: 0}
-  m_PointC: {x: 0.5, y: -0.5, z: 0}
-  m_PointD: {x: -0.5, y: -0.5, z: 0}
-  m_Normal: {x: 0, y: 1, z: 0}
-  m_Offset: 0
-  m_ClipBounds:
-    m_Center: {x: 0, y: 0, z: 0}
-    m_Extent: {x: 10, y: 10, z: 10}
-  m_Material: {fileID: 11400000, guid: 094c7f9e42fbbce4cab3cf88edd6728d, type: 2}
 --- !u!1 &1132614155
 GameObject:
   m_ObjectHideFlags: 0
@@ -3752,84 +3116,6 @@ MonoBehaviour:
     m_Center: {x: 0, y: 0, z: 0}
     m_Extent: {x: 10, y: 10, z: 10}
   m_Material: {fileID: 11400000, guid: b404ff7417dc1444e9a211eabf458909, type: 2}
---- !u!1 &1235192373
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 1235192374}
-  - component: {fileID: 1235192376}
-  - component: {fileID: 1235192375}
-  m_Layer: 0
-  m_Name: Right Eye Socket
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &1235192374
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1235192373}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0.043619387, w: 0.99904823}
-  m_LocalPosition: {x: 0.29, y: 0.22, z: -0.55}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 1808687299}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &1235192375
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1235192373}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 21fcff9f377e7674cb8d4aa6f00717da, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: SDF.Runtime::SdfRenderer.SDFOperation
-  m_Type: 3
-  m_Smoothness: 0.07
---- !u!114 &1235192376
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1235192373}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 18971fba1af45bf47a15a2f46b81bb76, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: SDF.Runtime::SdfRenderer.SDFShape
-  m_ShapeType: 2
-  m_Radius: 0.5
-  m_Size: {x: 0.2, y: 0.095, z: 0.2}
-  m_Roundness: 0.095
-  m_Height: 1
-  m_RadiusA: 0.75
-  m_RadiusB: 0.2
-  m_Thickness: 0.1
-  m_Angle: 45
-  m_PointA: {x: 0, y: -0.5, z: 0}
-  m_PointB: {x: 0, y: 0.5, z: 0}
-  m_PointC: {x: 0.5, y: -0.5, z: 0}
-  m_PointD: {x: -0.5, y: -0.5, z: 0}
-  m_Normal: {x: 0, y: 1, z: 0}
-  m_Offset: 0
-  m_ClipBounds:
-    m_Center: {x: 0, y: 0, z: 0}
-    m_Extent: {x: 10, y: 10, z: 10}
-  m_Material: {fileID: 11400000, guid: 371ad701182165a4588da8115ad7e6c6, type: 2}
 --- !u!1 &1254460300
 GameObject:
   m_ObjectHideFlags: 0
@@ -3856,7 +3142,7 @@ Transform:
   m_GameObject: {fileID: 1254460300}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 1.65, z: 0}
+  m_LocalPosition: {x: 0.4100001, y: 1.65, z: -5.34}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -3882,84 +3168,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: SDF.Runtime::SdfRenderer.SDFModel
   m_BoundsPadding: 0.02
   m_RenderInSceneView: 1
---- !u!1 &1268742622
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 1268742623}
-  - component: {fileID: 1268742625}
-  - component: {fileID: 1268742624}
-  m_Layer: 0
-  m_Name: Soft Jaw
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &1268742623
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1268742622}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: -0.56, z: -0.08}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 1808687299}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &1268742624
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1268742622}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 21fcff9f377e7674cb8d4aa6f00717da, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: SDF.Runtime::SdfRenderer.SDFOperation
-  m_Type: 3
-  m_Smoothness: 0.28
---- !u!114 &1268742625
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1268742622}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 18971fba1af45bf47a15a2f46b81bb76, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: SDF.Runtime::SdfRenderer.SDFShape
-  m_ShapeType: 26
-  m_Radius: 0.5
-  m_Size: {x: 0.51, y: 0.43, z: 0.43}
-  m_Roundness: 0.1
-  m_Height: 1
-  m_RadiusA: 0.75
-  m_RadiusB: 0.2
-  m_Thickness: 0.1
-  m_Angle: 45
-  m_PointA: {x: 0, y: -0.5, z: 0}
-  m_PointB: {x: 0, y: 0.5, z: 0}
-  m_PointC: {x: 0.5, y: -0.5, z: 0}
-  m_PointD: {x: -0.5, y: -0.5, z: 0}
-  m_Normal: {x: 0, y: 1, z: 0}
-  m_Offset: 0
-  m_ClipBounds:
-    m_Center: {x: 0, y: 0, z: 0}
-    m_Extent: {x: 10, y: 10, z: 10}
-  m_Material: {fileID: 11400000, guid: 094c7f9e42fbbce4cab3cf88edd6728d, type: 2}
 --- !u!1 &1318495925
 GameObject:
   m_ObjectHideFlags: 0
@@ -4194,84 +3402,6 @@ MonoBehaviour:
     m_Center: {x: 0, y: 0, z: 0}
     m_Extent: {x: 10, y: 10, z: 10}
   m_Material: {fileID: 11400000, guid: 70081fcf536dd0141b5b0ebd6be2cece, type: 2}
---- !u!1 &1412827842
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 1412827843}
-  - component: {fileID: 1412827845}
-  - component: {fileID: 1412827844}
-  m_Layer: 0
-  m_Name: Left Cheek
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &1412827843
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1412827842}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -0.29, y: -0.12, z: -0.24}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 1808687299}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &1412827844
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1412827842}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 21fcff9f377e7674cb8d4aa6f00717da, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: SDF.Runtime::SdfRenderer.SDFOperation
-  m_Type: 3
-  m_Smoothness: 0.24
---- !u!114 &1412827845
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1412827842}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 18971fba1af45bf47a15a2f46b81bb76, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: SDF.Runtime::SdfRenderer.SDFShape
-  m_ShapeType: 26
-  m_Radius: 0.5
-  m_Size: {x: 0.48, y: 0.46, z: 0.46}
-  m_Roundness: 0.1
-  m_Height: 1
-  m_RadiusA: 0.75
-  m_RadiusB: 0.2
-  m_Thickness: 0.1
-  m_Angle: 45
-  m_PointA: {x: 0, y: -0.5, z: 0}
-  m_PointB: {x: 0, y: 0.5, z: 0}
-  m_PointC: {x: 0.5, y: -0.5, z: 0}
-  m_PointD: {x: -0.5, y: -0.5, z: 0}
-  m_Normal: {x: 0, y: 1, z: 0}
-  m_Offset: 0
-  m_ClipBounds:
-    m_Center: {x: 0, y: 0, z: 0}
-    m_Extent: {x: 10, y: 10, z: 10}
-  m_Material: {fileID: 11400000, guid: 094c7f9e42fbbce4cab3cf88edd6728d, type: 2}
 --- !u!1 &1487598330
 GameObject:
   m_ObjectHideFlags: 0
@@ -4633,7 +3763,7 @@ Transform:
   m_GameObject: {fileID: 1603928173}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 1.65, z: 0}
+  m_LocalPosition: {x: 0.41, y: 1.65, z: -5.34}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -4767,96 +3897,6 @@ MonoBehaviour:
     m_Center: {x: 0, y: 0, z: 0}
     m_Extent: {x: 10, y: 10, z: 10}
   m_Material: {fileID: 11400000, guid: b404ff7417dc1444e9a211eabf458909, type: 2}
---- !u!1 &1653442307
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 1653442310}
-  - component: {fileID: 1653442309}
-  - component: {fileID: 1653442308}
-  m_Layer: 0
-  m_Name: Portrait Lower Plinth
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!23 &1653442308
-MeshRenderer:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1653442307}
-  m_Enabled: 1
-  m_CastShadows: 1
-  m_ReceiveShadows: 1
-  m_DynamicOccludee: 1
-  m_StaticShadowCaster: 0
-  m_MotionVectors: 1
-  m_LightProbeUsage: 1
-  m_ReflectionProbeUsage: 1
-  m_RayTracingMode: 2
-  m_RayTraceProcedural: 0
-  m_RayTracingAccelStructBuildFlagsOverride: 0
-  m_RayTracingAccelStructBuildFlags: 1
-  m_SmallMeshCulling: 1
-  m_ForceMeshLod: -1
-  m_MeshLodSelectionBias: 0
-  m_RenderingLayerMask: 1
-  m_RendererPriority: 0
-  m_Materials:
-  - {fileID: 2100000, guid: 0e278a4d56974db45a4ac7075f9f4be9, type: 2}
-  m_StaticBatchInfo:
-    firstSubMesh: 0
-    subMeshCount: 0
-  m_StaticBatchRoot: {fileID: 0}
-  m_ProbeAnchor: {fileID: 0}
-  m_LightProbeVolumeOverride: {fileID: 0}
-  m_ScaleInLightmap: 1
-  m_ReceiveGI: 1
-  m_PreserveUVs: 1
-  m_IgnoreNormalsForChartDetection: 0
-  m_ImportantGI: 0
-  m_StitchLightmapSeams: 1
-  m_SelectedEditorRenderState: 3
-  m_MinimumChartSize: 4
-  m_AutoUVMaxDistance: 0.5
-  m_AutoUVMaxAngle: 89
-  m_LightmapParameters: {fileID: 0}
-  m_GlobalIlluminationMeshLod: 0
-  m_SortingLayerID: 0
-  m_SortingLayer: 0
-  m_SortingOrder: 0
-  m_MaskInteraction: 0
-  m_AdditionalVertexStreams: {fileID: 0}
---- !u!33 &1653442309
-MeshFilter:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1653442307}
-  m_Mesh: {fileID: 10206, guid: 0000000000000000e000000000000000, type: 0}
---- !u!4 &1653442310
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1653442307}
-  serializedVersion: 2
-  m_LocalRotation: {x: -0, y: 0.02617695, z: -0, w: 0.99965733}
-  m_LocalPosition: {x: 0, y: -1.6099999, z: 0}
-  m_LocalScale: {x: 1.35, y: 0.27, z: 1.35}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 1808687299}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1671270357
 GameObject:
   m_ObjectHideFlags: 0
@@ -5361,66 +4401,6 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!1 &1808687298
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 1808687299}
-  - component: {fileID: 1808687300}
-  m_Layer: 0
-  m_Name: Porcelain Portrait SDF
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &1808687299
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1808687298}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: -0.02617695, z: 0, w: 0.99965733}
-  m_LocalPosition: {x: -5.7, y: 1.18, z: 0.02}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children:
-  - {fileID: 841452669}
-  - {fileID: 1412827843}
-  - {fileID: 1125393751}
-  - {fileID: 1268742623}
-  - {fileID: 694805444}
-  - {fileID: 648422005}
-  - {fileID: 972439214}
-  - {fileID: 202232636}
-  - {fileID: 1986995703}
-  - {fileID: 1840139316}
-  - {fileID: 1235192374}
-  - {fileID: 622588017}
-  - {fileID: 1653442310}
-  - {fileID: 572368434}
-  m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &1808687300
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1808687298}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 83b382d6b8662e149a060223bfa4d3c0, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: SDF.Runtime::SdfRenderer.SDFModel
-  m_BoundsPadding: 0.02
-  m_RenderInSceneView: 1
 --- !u!1 &1830111772
 GameObject:
   m_ObjectHideFlags: 0
@@ -5548,84 +4528,6 @@ MonoBehaviour:
   m_ShadowLayerMask: 1
   m_RenderingLayers: 1
   m_ShadowRenderingLayers: 1
---- !u!1 &1840139315
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 1840139316}
-  - component: {fileID: 1840139318}
-  - component: {fileID: 1840139317}
-  m_Layer: 0
-  m_Name: Left Eye Socket
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &1840139316
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1840139315}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: -0.043619387, w: 0.99904823}
-  m_LocalPosition: {x: -0.29, y: 0.22, z: -0.55}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 1808687299}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &1840139317
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1840139315}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 21fcff9f377e7674cb8d4aa6f00717da, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: SDF.Runtime::SdfRenderer.SDFOperation
-  m_Type: 3
-  m_Smoothness: 0.07
---- !u!114 &1840139318
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1840139315}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 18971fba1af45bf47a15a2f46b81bb76, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: SDF.Runtime::SdfRenderer.SDFShape
-  m_ShapeType: 2
-  m_Radius: 0.5
-  m_Size: {x: 0.2, y: 0.095, z: 0.2}
-  m_Roundness: 0.095
-  m_Height: 1
-  m_RadiusA: 0.75
-  m_RadiusB: 0.2
-  m_Thickness: 0.1
-  m_Angle: 45
-  m_PointA: {x: 0, y: -0.5, z: 0}
-  m_PointB: {x: 0, y: 0.5, z: 0}
-  m_PointC: {x: 0.5, y: -0.5, z: 0}
-  m_PointD: {x: -0.5, y: -0.5, z: 0}
-  m_Normal: {x: 0, y: 1, z: 0}
-  m_Offset: 0
-  m_ClipBounds:
-    m_Center: {x: 0, y: 0, z: 0}
-    m_Extent: {x: 10, y: 10, z: 10}
-  m_Material: {fileID: 11400000, guid: 371ad701182165a4588da8115ad7e6c6, type: 2}
 --- !u!1 &1841721249
 GameObject:
   m_ObjectHideFlags: 0
@@ -5820,7 +4722,7 @@ Transform:
   m_GameObject: {fileID: 1906088648}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -3.46, y: 1.57, z: -0.47}
+  m_LocalPosition: {x: -3.0499997, y: 1.57, z: -5.8100004}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -5911,84 +4813,6 @@ MonoBehaviour:
   m_ShapeType: 0
   m_Radius: 0.052
   m_Size: {x: 0.5, y: 0.5, z: 0.5}
-  m_Roundness: 0.1
-  m_Height: 1
-  m_RadiusA: 0.75
-  m_RadiusB: 0.2
-  m_Thickness: 0.1
-  m_Angle: 45
-  m_PointA: {x: 0, y: -0.5, z: 0}
-  m_PointB: {x: 0, y: 0.5, z: 0}
-  m_PointC: {x: 0.5, y: -0.5, z: 0}
-  m_PointD: {x: -0.5, y: -0.5, z: 0}
-  m_Normal: {x: 0, y: 1, z: 0}
-  m_Offset: 0
-  m_ClipBounds:
-    m_Center: {x: 0, y: 0, z: 0}
-    m_Extent: {x: 10, y: 10, z: 10}
-  m_Material: {fileID: 11400000, guid: 371ad701182165a4588da8115ad7e6c6, type: 2}
---- !u!1 &1986995702
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 1986995703}
-  - component: {fileID: 1986995705}
-  - component: {fileID: 1986995704}
-  m_Layer: 0
-  m_Name: Graphic Hair Cap
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &1986995703
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1986995702}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: -0.043619387, w: 0.99904823}
-  m_LocalPosition: {x: -0.012, y: 0.76, z: -0.157}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 1808687299}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &1986995704
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1986995702}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 21fcff9f377e7674cb8d4aa6f00717da, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: SDF.Runtime::SdfRenderer.SDFOperation
-  m_Type: 3
-  m_Smoothness: 0.14
---- !u!114 &1986995705
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1986995702}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 18971fba1af45bf47a15a2f46b81bb76, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: SDF.Runtime::SdfRenderer.SDFShape
-  m_ShapeType: 26
-  m_Radius: 0.5
-  m_Size: {x: 0.72, y: 0.31, z: 0.56}
   m_Roundness: 0.1
   m_Height: 1
   m_RadiusA: 0.75
@@ -6490,7 +5314,6 @@ SceneRoots:
   - {fileID: 852866249}
   - {fileID: 1254460301}
   - {fileID: 1603928174}
-  - {fileID: 1808687299}
   - {fileID: 781901395}
   - {fileID: 1906088649}
   - {fileID: 996267795}

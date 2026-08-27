@@ -1,0 +1,515 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SDF Raymarcher Portfolio Guide</title>
+  <style>
+    :root {
+      --ink: #16202b;
+      --muted: #586777;
+      --paper: #ffffff;
+      --soft: #eef4f5;
+      --teal: #087f8c;
+      --orange: #e06c32;
+      --line: #d8e1e4;
+      --dark: #101923;
+    }
+
+    @page {
+      size: A4;
+      margin: 18mm 17mm 19mm;
+    }
+
+    * { box-sizing: border-box; }
+
+    html {
+      font-family: "Segoe UI", Inter, Arial, sans-serif;
+      color: var(--ink);
+      background: var(--paper);
+      font-size: 10.6pt;
+      line-height: 1.55;
+    }
+
+    body {
+      margin: 0;
+      background: var(--paper);
+    }
+
+    h1, h2, h3 {
+      line-height: 1.15;
+      page-break-after: avoid;
+      break-after: avoid-page;
+    }
+
+    h1 {
+      margin: 0 0 12px;
+      font-size: 30pt;
+      letter-spacing: -0.035em;
+      color: white;
+    }
+
+    h2 {
+      margin: 26px 0 10px;
+      padding-top: 5px;
+      font-size: 18pt;
+      color: var(--dark);
+      border-top: 2px solid var(--line);
+    }
+
+    h3 {
+      margin: 17px 0 6px;
+      font-size: 12.5pt;
+      color: var(--teal);
+    }
+
+    p { margin: 0 0 10px; }
+
+    ul, ol {
+      margin: 7px 0 12px 22px;
+      padding: 0;
+    }
+
+    li { margin-bottom: 4px; }
+
+    strong { color: #101923; }
+
+    .cover {
+      min-height: 247mm;
+      margin: -18mm -17mm -19mm;
+      padding: 27mm 20mm 18mm;
+      color: white;
+      background:
+        linear-gradient(130deg, rgba(8,127,140,.92), rgba(16,25,35,.96) 55%, rgba(224,108,50,.78)),
+        url("../Assets/SDF/Samples/Hero/HeroPreview.png") center 66% / cover no-repeat;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      page-break-after: always;
+      break-after: page;
+    }
+
+    .eyebrow {
+      text-transform: uppercase;
+      letter-spacing: .17em;
+      font-weight: 700;
+      font-size: 9pt;
+      color: #bdebf0;
+      margin-bottom: 10px;
+    }
+
+    .subtitle {
+      max-width: 125mm;
+      font-size: 14pt;
+      line-height: 1.45;
+      color: #e7f5f6;
+    }
+
+    .cover-note {
+      width: fit-content;
+      max-width: 145mm;
+      padding: 12px 15px;
+      border: 1px solid rgba(255,255,255,.38);
+      background: rgba(10,17,24,.72);
+      color: #f5f8f9;
+      font-size: 10pt;
+    }
+
+    .lead {
+      font-size: 12pt;
+      line-height: 1.6;
+      color: #2a3c4b;
+    }
+
+    .copy {
+      margin: 10px 0 14px;
+      padding: 12px 14px;
+      border-left: 4px solid var(--orange);
+      background: #fff6f0;
+      color: #263440;
+      page-break-inside: avoid;
+      break-inside: avoid-page;
+    }
+
+    .copy p:last-child,
+    .note p:last-child { margin-bottom: 0; }
+
+    .label {
+      margin-bottom: 5px;
+      color: var(--orange);
+      font-size: 8.5pt;
+      font-weight: 800;
+      letter-spacing: .11em;
+      text-transform: uppercase;
+    }
+
+    .note {
+      margin: 11px 0 14px;
+      padding: 12px 14px;
+      border: 1px solid #cbdfe2;
+      background: var(--soft);
+      page-break-inside: avoid;
+      break-inside: avoid-page;
+    }
+
+    .media-plan {
+      display: grid;
+      grid-template-columns: 22mm 1fr;
+      gap: 7px 12px;
+      margin: 12px 0 15px;
+      padding: 13px 15px;
+      background: var(--dark);
+      color: #edf5f6;
+      page-break-inside: avoid;
+      break-inside: avoid-page;
+    }
+
+    .time {
+      color: #68d2dc;
+      font-weight: 800;
+      font-variant-numeric: tabular-nums;
+    }
+
+    figure {
+      margin: 14px 0 18px;
+      page-break-inside: avoid;
+      break-inside: avoid-page;
+    }
+
+    figure img {
+      width: 100%;
+      display: block;
+      border: 1px solid var(--line);
+    }
+
+    figcaption {
+      padding-top: 7px;
+      color: var(--muted);
+      font-size: 8.8pt;
+    }
+
+    .diagram {
+      margin: 12px 0 14px;
+      padding: 15px 18px;
+      background: #101923;
+      color: #e8f4f5;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 9.5pt;
+      line-height: 1.75;
+      text-align: center;
+      white-space: pre-line;
+      page-break-inside: avoid;
+      break-inside: avoid-page;
+    }
+
+    .metric {
+      margin: 10px 0 14px;
+      padding: 13px 15px;
+      border: 1px solid var(--line);
+      border-top: 4px solid var(--teal);
+      background: #fafcfc;
+      font-variant-numeric: tabular-nums;
+      page-break-inside: avoid;
+      break-inside: avoid-page;
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin: 10px 0 14px;
+    }
+
+    .good, .avoid {
+      padding: 12px 14px;
+      border: 1px solid var(--line);
+      page-break-inside: avoid;
+      break-inside: avoid-page;
+    }
+
+    .good { border-top: 4px solid var(--teal); }
+    .avoid { border-top: 4px solid var(--orange); }
+    .good ul, .avoid ul { margin-bottom: 0; }
+
+    .formula {
+      margin: 14px 0;
+      padding: 14px;
+      color: white;
+      background: linear-gradient(100deg, var(--teal), #0b5965);
+      text-align: center;
+      font-size: 12pt;
+      font-weight: 700;
+      page-break-inside: avoid;
+      break-inside: avoid-page;
+    }
+
+    .page-break {
+      page-break-before: always;
+      break-before: page;
+    }
+
+    .footer-note {
+      margin-top: 25px;
+      padding-top: 10px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 8.5pt;
+    }
+  </style>
+</head>
+<body>
+  <section class="cover">
+    <div>
+      <div class="eyebrow">Portfolio case study writing guide</div>
+      <h1>Real-Time SDF<br>Raymarcher for Unity URP</h1>
+      <p class="subtitle">A practical structure, copy-ready captions, and a clear technical narrative for presenting the renderer as both a visual project and an engineering case study.</p>
+    </div>
+    <div class="cover-note">Use the page as a short visual story: what you built, why you built it, how it works, and what you learned.</div>
+  </section>
+
+  <main>
+    <p class="lead">Treat the page as a short visual story. The images should provide evidence rather than decoration, and every caption should help the reader understand either a visual decision or an engineering decision.</p>
+
+    <h2>1. Project title and introduction</h2>
+
+    <h3>Real-Time SDF Raymarcher for Unity URP</h3>
+
+    <div class="copy">
+      <div class="label">Copy-ready introduction</div>
+      <p>I built a real-time signed-distance-field renderer to explore procedural modeling inside Unity. Instead of converting shapes into meshes, the renderer evaluates them directly on the GPU. Shapes remain editable as Unity components and can be combined through unions, subtractions, smooth blending, and spatial modifiers.</p>
+      <p>I wanted the project to work as more than a shader experiment, so I developed an authoring workflow, several shading models, PBR texture support, scene integration, debugging tools, and performance optimizations.</p>
+    </div>
+
+    <p>Add a compact information row:</p>
+
+    <div class="note">
+      <strong>Role:</strong> Graphics programmer and technical artist<br>
+      <strong>Tools:</strong> Unity 6, URP, C#, HLSL, Render Graph<br>
+      <strong>Project type:</strong> Personal renderer project<br>
+      <strong>Duration:</strong> [Your actual development time]
+    </div>
+
+    <h2>2. Hero gallery video</h2>
+
+    <p>Place the hero video immediately after the introduction.</p>
+
+    <h3>One renderer, several visual styles</h3>
+
+    <div class="copy">
+      <div class="label">Video caption</div>
+      <p>This gallery is the final visual demonstration of the renderer. Each sculpture tests a different part of the system: texture-mapped PBR shading, organic smooth modeling, cel shading, hard-surface construction, emissive materials, and animated modifiers. The sculptures are rendered as SDFs at runtime, while the floor and pedestals are conventional Unity meshes.</p>
+    </div>
+
+    <p>Keep the video around 12&ndash;18 seconds. Small labels can appear as the camera visits each object:</p>
+
+    <ul>
+      <li>Texture-mapped PBR</li>
+      <li>Smooth unions and subtraction</li>
+      <li>Cel shading</li>
+      <li>Emissive SDF materials</li>
+      <li>Real-time modifiers</li>
+    </ul>
+
+    <div class="media-plan">
+      <div class="time">0&ndash;3s</div><div>Open on the complete gallery composition.</div>
+      <div class="time">3&ndash;6s</div><div>Move closer to the mapped centerpiece and let highlights reveal its normal and roughness response.</div>
+      <div class="time">6&ndash;9s</div><div>Show the portrait and creature to establish recognizable organic modeling and a contrasting shading style.</div>
+      <div class="time">9&ndash;12s</div><div>Feature smooth blending, subtraction, twisting, and the orbiting SDF models.</div>
+      <div class="time">End</div><div>Return to the opening framing for a seamless loop.</div>
+    </div>
+
+    <p>Do not cover the video with long explanations.</p>
+
+    <figure>
+      <img src="../Assets/SDF/Samples/Hero/HeroPreview.png" alt="The final SDF hero gallery containing a portrait, geometric totem, mapped centerpiece and cel-shaded creature">
+      <figcaption>The final hero gallery: use the video for the overall result, then give each sculpture a focused image and a specific reason for being included.</figcaption>
+    </figure>
+
+    <h2>3. Central mapped sculpture</h2>
+
+    <p>Use one close-up where the lighting makes the surface texture obvious.</p>
+
+    <h3>PBR shading on a procedural surface</h3>
+
+    <div class="copy">
+      <div class="label">Image caption</div>
+      <p>The central sculpture focuses on material response. Its base colour, normal, metallic, and roughness maps are sampled directly on the raymarched surface and used by a URP-inspired lighting model. Moving highlights make the effect of the normal and roughness maps visible without requiring a traditional mesh.</p>
+    </div>
+
+    <p>If possible, place the four source textures underneath:</p>
+
+    <div class="note"><strong>Base colour &middot; Normal &middot; Metallic &middot; Roughness</strong></div>
+
+    <p>This image should prove that the mapping system affects the final lighting&mdash;not simply show that texture fields exist in the inspector.</p>
+
+    <h2>4. Stylized portrait</h2>
+
+    <p>Use a close-up where the face is recognizable.</p>
+
+    <h3>Testing organic SDF modeling</h3>
+
+    <div class="copy">
+      <div class="label">Image caption</div>
+      <p>I created this portrait to see whether the system could produce recognizable forms instead of only abstract shapes. Smooth unions build the head, cheeks, jaw, ears, and nose, while smooth subtraction carves the eyes and mouth. The result remains procedural and can be reshaped by editing the original primitives.</p>
+    </div>
+
+    <p>This caption explains why the portrait matters technically. Avoid presenting it as character art&mdash;the interesting part is how it was constructed.</p>
+
+    <h2>5. Cel-shaded creature</h2>
+
+    <p>Show the creature from a slightly low or three-quarter angle.</p>
+
+    <h3>A different style using the same renderer</h3>
+
+    <div class="copy">
+      <div class="label">Image caption</div>
+      <p>The creature uses the same SDF geometry pipeline but switches to a simplified cel-shading model. Its body, legs, tail, muzzle, antennae, and eyes are separate primitives combined into one model. I used it to test disconnected details, strong colour separation, and whether the renderer could support a more playful visual direction.</p>
+    </div>
+
+    <p>If you show it moving:</p>
+
+    <div class="copy">
+      <div class="label">Animation caption</div>
+      <p>A small looping animation gives the creature a gentle bob and head movement. The geometry remains fully procedural throughout the animation.</p>
+    </div>
+
+    <h2>6. Geometric totem</h2>
+
+    <p>Choose an angle where its frame, core, rings, and crown are separated clearly.</p>
+
+    <h3>Hard-surface and emissive construction</h3>
+
+    <div class="copy">
+      <div class="label">Image caption</div>
+      <p>This totem explores a harder geometric aesthetic. It combines a box frame, octahedral forms, an emissive spherical cavity, floating rings, and a separate crown. It demonstrates that the same CSG system can create precise mechanical forms as well as soft organic ones.</p>
+    </div>
+
+    <h2>7. Show the authoring workflow</h2>
+
+    <p>This is one of the most important pieces. Include a short recording of yourself changing the sculpture in Unity.</p>
+
+    <p>Show yourself:</p>
+
+    <ol>
+      <li>Adding a primitive.</li>
+      <li>Selecting smooth union or subtraction.</li>
+      <li>Changing the blending amount.</li>
+      <li>Applying a twist or onion modifier.</li>
+      <li>Assigning a material.</li>
+    </ol>
+
+    <h3>Component-based authoring inside Unity</h3>
+
+    <div class="copy">
+      <div class="label">Workflow caption</div>
+      <p>Every primitive, CSG operation, modifier, and material is represented by an editable Unity component. Changes are packed into GPU buffers and reflected in the render without baking a mesh. This allowed me to iterate on the sculptures directly in the scene instead of repeatedly editing shader code.</p>
+    </div>
+
+    <p>A useful side-by-side format would be:</p>
+
+    <div class="note"><strong>Unity hierarchy and inspector &nbsp;|&nbsp; Live rendered result</strong></div>
+
+    <h2>8. Explain the renderer simply</h2>
+
+    <p>Include one small diagram:</p>
+
+    <div class="diagram">Unity components
+&darr;
+Scene registry and change tracking
+&darr;
+GPU shape, operation and material buffers
+&darr;
+Model-bound intersection
+&darr;
+Raymarching and CSG evaluation
+&darr;
+URP lighting and final shading</div>
+
+    <div class="copy">
+      <div class="label">Architecture summary</div>
+      <p>On the CPU, the renderer collects the active SDF components and packs their transforms, parameters, operations, modifiers, and materials into GPU buffers. The rendering pass first tests the bounds of each model, then evaluates only the relevant distance fields along the ray. Once a surface is found, its material is evaluated using the selected shading model.</p>
+    </div>
+
+    <p>This is enough architecture for most readers. Put deeper implementation details in expandable sections or your repository documentation.</p>
+
+    <h2>9. Discuss the difficult parts</h2>
+
+    <p>This section makes the project feel like a genuine engineering case study.</p>
+
+    <h3>Normal mapping without mesh tangents</h3>
+
+    <div class="copy">
+      <p>Traditional normal mapping relies on tangent data stored in a mesh. Raymarched surfaces do not have that data, so I had to construct a stable surface basis from the SDF normal and the shape transformation. That basis is then used to convert the sampled tangent-space normal into the lighting coordinate system.</p>
+    </div>
+
+    <h3>Keeping editable scenes efficient</h3>
+
+    <div class="copy">
+      <p>A component workflow is convenient, but rebuilding the complete GPU scene after every change would be wasteful. I introduced change tracking for transforms, shapes, operations, modifiers, bounds, and materials so the renderer can update only the data that has changed.</p>
+    </div>
+
+    <h3>Avoiding unnecessary SDF evaluation</h3>
+
+    <div class="copy">
+      <p>Evaluating every shape for every ray quickly becomes expensive. Each SDF model therefore has a world-space bound. Rays that do not intersect that bound skip the model entirely, which becomes increasingly important when several independent sculptures share a scene.</p>
+    </div>
+
+    <h2>10. Include honest performance results</h2>
+
+    <p>Measure the final hero scene before publishing. Use a format such as:</p>
+
+    <div class="metric">
+      <strong>Hero gallery performance</strong><br>
+      1920&times;1080 on a [GPU name]<br>
+      [FPS] average / [GPU milliseconds]<br>
+      43 shapes across 7 SDF models<br>
+      [Quality preset] with [maximum steps]<br>
+      Animated transforms and modifiers enabled
+    </div>
+
+    <p>Do not hide weak results, but explain what the measurement represents. A graphics portfolio benefits more from credible numbers than from an unsupported &ldquo;highly optimized&rdquo; claim.</p>
+
+    <h2>11. End with what you learned</h2>
+
+    <h3>What I took away from the project</h3>
+
+    <div class="copy">
+      <div class="label">Copy-ready conclusion</div>
+      <p>This project began as an experiment in raymarching, but the harder problems appeared around the shader itself: scene authoring, GPU synchronization, material handling, bounds, debugging, and performance. Building complete demonstration scenes helped me find problems that isolated primitive tests did not expose.</p>
+      <p>The main lesson was that a usable rendering system needs more than a correct distance function. It also needs predictable tools, clear visual feedback, and enough flexibility to support different artistic directions.</p>
+    </div>
+
+    <h2>Keep the writing human</h2>
+
+    <p>For every caption, follow this simple formula:</p>
+
+    <div class="formula">What is visible &rarr; why you made it &rarr; what it proves</div>
+
+    <div class="two-col">
+      <div class="avoid">
+        <strong>Avoid</strong>
+        <ul>
+          <li>&ldquo;Revolutionary rendering solution&rdquo;</li>
+          <li>&ldquo;State-of-the-art graphics&rdquo;</li>
+          <li>&ldquo;Seamlessly leverages cutting-edge technology&rdquo;</li>
+          <li>&ldquo;Highly optimized&rdquo; without measurements</li>
+        </ul>
+      </div>
+      <div class="good">
+        <strong>Prefer</strong>
+        <ul>
+          <li>&ldquo;I built&hellip;&rdquo;</li>
+          <li>&ldquo;I used this scene to test&hellip;&rdquo;</li>
+          <li>&ldquo;The difficult part was&hellip;&rdquo;</li>
+          <li>&ldquo;This exposed a problem with&hellip;&rdquo;</li>
+          <li>&ldquo;I changed the implementation so&hellip;&rdquo;</li>
+        </ul>
+      </div>
+    </div>
+
+    <p>That combination of attractive results, specific technical explanations, and honest decisions will make the project read like work from a real graphics programmer rather than a shader showcase with generic marketing text.</p>
+
+    <p class="footer-note">Prepared for the Unity URP SDF Raymarcher portfolio case study. Replace bracketed performance and duration placeholders with measured project data before publishing.</p>
+  </main>
+</body>
+</html>
